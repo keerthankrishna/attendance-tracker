@@ -2,7 +2,8 @@
 // Class Attendance Tracker — `notify` Supabase Edge Function
 //
 // Sends notification emails to Keerthan + the other person who handles
-// the class, when a student is added or a payment is recorded.
+// the class, when a student is added or deleted, or a payment is
+// recorded or deleted.
 // Recipients get a log/notification email. NO receipt is sent to
 // students/parents — this function only ever mails the NOTIFY_EMAILS list.
 //
@@ -90,6 +91,26 @@ Deno.serve(async (req: Request) => {
         p.method ? `Method: ${p.method}` : "",
         `Total paid so far: ${money(p.total_paid)}`,
         `Balance still due: ${money(p.balance)}`,
+      ].filter(Boolean);
+    } else if (type === "payment_deleted") {
+      subject =
+        `Payment deleted: ${money(p.amount)} from ${p.student_name || ""} ` +
+        `(balance ${money(p.balance)})`;
+      lines = [
+        `A payment was deleted.`,
+        `Student: ${p.student_name || ""}`,
+        `Amount removed: ${money(p.amount)}`,
+        p.payment_date ? `Payment date was: ${p.payment_date}` : "",
+        p.method ? `Method was: ${p.method}` : "",
+        `Balance now due: ${money(p.balance)}`,
+      ].filter(Boolean);
+    } else if (type === "student_deleted") {
+      subject = `Student deleted: ${p.name || ""}`;
+      lines = [
+        `A student was deleted (with all their attendance and payments).`,
+        `Name: ${p.name || ""}`,
+        `Pay per class was: ${money(p.rate)}`,
+        p.joined_date ? `Joined date was: ${p.joined_date}` : "",
       ].filter(Boolean);
     } else {
       return new Response(JSON.stringify({ error: "unknown event type" }), {

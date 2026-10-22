@@ -262,6 +262,8 @@ Flow:
    sends via Resend:
    - `New student added: <name>` — with their rate and details
    - `Payment received: $<amount> from <name> (balance $<balance>)`
+   - `Payment deleted: $<amount> from <name> (balance $<balance>)`
+   - `Student deleted: <name>`
 
 Recipient addresses are deliberately **not** stored in this repo
 (see [Configuration and secrets](#configuration-and-secrets)).
@@ -450,6 +452,15 @@ python3 -m http.server 8000
   `NOTIFY_ENABLED` set to `true` in `config.js`. Notifications are
   in Resend test mode (owner-only delivery) until a custom domain
   is verified or the sender provider is changed.
+- **Oct 21, 2026 (later)** — Delete notifications added at the
+  owner's request: the app now also emails on payment deleted and
+  student deleted (the Edge Function gained `payment_deleted` and
+  `student_deleted` event types). *Note: the updated function code
+  in `notify-function.ts` must be re-pasted/redeployed in Supabase
+  for these two new emails to fire; the two original emails are
+  unaffected either way.* Both original triggers were verified live
+  by the owner the same evening (student-added and payment emails
+  received).
 
 ---
 

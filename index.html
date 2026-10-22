@@ -521,6 +521,9 @@ function renderStudents() {
     if (!confirm('Delete "' + s.name + '"? Their attendance and payment history will also be removed.')) return;
     const { error } = await sb.from("students").delete().eq("id", s.id);
     if (error) { showError("Could not delete student", error); return; }
+    notifyEvent("student_deleted", {
+      name: s.name, rate: s.rate, joined_date: s.joined_date || ""
+    });
     refreshAndRender("Student deleted ✓");
   }));
 }
@@ -649,8 +652,19 @@ function renderPayments() {
   }).join("");
   $("paymentList").querySelectorAll("[data-delete-payment]").forEach(b => b.addEventListener("click", async () => {
     if (!confirm("Delete this payment? The student's balance will go back up.")) return;
+    const pmt = payments.find(x => x.id === b.dataset.deletePayment);
+    const stu = pmt ? studentById(pmt.student_id) : null;
     const { error } = await sb.from("payments").delete().eq("id", b.dataset.deletePayment);
     if (error) { showError("Could not delete payment", error); return; }
+    if (pmt) {
+      notifyEvent("payment_deleted", {
+        student_name: stu ? stu.name : "(deleted student)",
+        amount: pmt.amount, payment_date: pmt.payment_date || "", method: pmt.method || "",
+        /* Local data still includes the deleted payment, so the balance
+           after deletion = current balance + the removed amount. */
+        balance: (stu ? studentBalance(stu) : 0) + (Number(pmt.amount) || 0)
+      });
+    }
     refreshAndRender("Payment deleted ✓");
   }));
 }
