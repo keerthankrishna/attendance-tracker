@@ -4,8 +4,8 @@
 // tables use Row Level Security and only signed-in (authenticated) users
 // can read or write anything. NEVER put a service_role key in this file.
 window.APP_CONFIG = {
-  SUPABASE_URL: "PASTE_YOUR_SUPABASE_PROJECT_URL",
-  SUPABASE_ANON_KEY: "PASTE_YOUR_SUPABASE_ANON_KEY",
+  SUPABASE_URL: "https://offvmihfkhhcrujrhslz.supabase.co",
+  SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9mZnZtaWhma2hoY3J1anJoc2x6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI2MjY1NzIsImV4cCI6MjEwODIwMjU3Mn0.BTWY1KBSHcDCv-zcHKKgNDnNzx5IKC59Kgu_3yJOYN4",
 
   // Email notifications (optional, later step — see SETUP.md section B).
   // Leave NOTIFY_ENABLED as false until the `notify` Edge Function exists.
