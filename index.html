@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Class Attendance Tracker</title>
+<style>
+  /* Design (same as the tested version): vivid blue header, sky-blue
+     background, orange actions, amber owed card. ALL text solid black
+     (#000) except white text on the blue header. */
+  * { box-sizing: border-box; min-width: 0; }
+  html, body { margin:0; padding:0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    background: #bae6fd; color: #000; padding-bottom: 84px;
+  }
+  header {
+    background: linear-gradient(135deg, #1d4ed8, #2563eb 55%, #0284c7);
+    color: #fff; padding: 16px; position: sticky; top: 0; z-index: 20;
+  }
+  header h1 { margin:0 0 4px; font-size: 22px; color:#fff; }
+  header p { margin:0; font-size: 13px; color:#fff; opacity:.95; }
+  .header-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+  .header-actions button {
+    background:#fff; color:#000; border:2px solid #00000022; border-radius:999px;
+    padding:7px 14px; font-weight:700; cursor:pointer; font-size:13px;
+  }
+  main { max-width: 860px; margin: 0 auto; padding: 16px; }
+  .top-tabs { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px; }
+  .top-tabs button {
+    flex:1 1 120px; padding:10px 8px; border-radius:12px; border:2px solid #0284c7;
+    background:#fff; color:#000; font-weight:700; cursor:pointer;
+  }
+  .top-tabs button.active { background:#2563eb; color:#fff; }
+  .screen { display:none; }
+  .screen.active { display:block; }
+  .card {
+    background:#fff; color:#000; border-radius:16px; padding:16px;
+    box-shadow:0 2px 10px rgba(0,0,0,.15); margin-bottom:16px; overflow:hidden;
+  }
+  .card h2, .card h3 { margin-top:0; color:#000; }
+  label { display:block; font-weight:700; color:#000; margin:10px 0 4px; font-size:14px; }
+  input, select, textarea {
+    width:100%; max-width:100%; min-width:0; box-sizing:border-box;
+    padding:11px; border:2px solid #334155; border-radius:10px;
+    font-size:16px; color:#000; background:#fff;
+  }
+  input::placeholder, textarea::placeholder { color:#000; opacity:.55; }
+  textarea { min-height:56px; resize:vertical; }
+  /* Payments/any form grid: children can shrink, never overflow the card */
+  .form-grid { display:grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap:12px; }
+  .form-grid .full { grid-column: 1 / -1; }
+  @media (max-width: 560px) { .form-grid { grid-template-columns: minmax(0,1fr); } }
+  .btn {
+    display:inline-block; border:none; border-radius:12px; padding:12px 18px;
+    font-weight:800; cursor:pointer; font-size:15px; color:#000; background:#e2e8f0;
+  }
+  .btn-primary { background:#f97316; color:#000; }
+  .btn-blue { background:#2563eb; color:#fff; }
+  .btn-danger { background:#dc2626; color:#fff; }
+  .btn-small { padding:7px 11px; font-size:13px; border-radius:9px; }
+  .btn:disabled { opacity:.55; cursor:default; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .row > * { min-width:0; }
+  .muted { color:#000; opacity:.7; font-size:13px; }
+  .error { color:#000; background:#fecaca; border:2px solid #dc2626; border-radius:10px; padding:10px 12px; font-weight:700; }
+  .empty { text-align:center; padding:28px 12px; color:#000; }
+  .empty .big { font-size:34px; }
+  .student-item, .payment-item {
+    display:flex; gap:10px; align-items:flex-start; justify-content:space-between;
+    padding:12px 0; border-bottom:1px solid #e2e8f0;
+  }
+  .student-item:last-child, .payment-item:last-child { border-bottom:none; }
+  .avatar {
+    width:42px; height:42px; border-radius:50%; flex:0 0 42px;
+    display:flex; align-items:center; justify-content:center;
+    font-weight:900; color:#000; background:#fbbf24;
+  }
+  .badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; font-weight:800; color:#000; background:#a7f3d0; }
+  .badge.paused { background:#fecaca; }
+  .badge.rate { background:#bfdbfe; }
+  .stats { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:12px; margin-bottom:16px; }
+  @media (max-width:560px){ .stats{ grid-template-columns:minmax(0,1fr); } }
+  .stat { border-radius:16px; padding:16px; color:#000; box-shadow:0 2px 10px rgba(0,0,0,.15); }
+  .stat .num { font-size:26px; font-weight:900; color:#000; }
+  .stat.charged { background:#93c5fd; }
+  .stat.collected { background:#86efac; }
+  .stat.owed { background:#f59e0b; }
+  table { width:100%; border-collapse:collapse; color:#000; }
+  th, td { text-align:left; padding:9px 6px; border-bottom:1px solid #e2e8f0; color:#000; font-size:14px; overflow-wrap:anywhere; }
+  .cal-head { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:10px; }
+  .cal-head h3 { margin:0; }
+  .cal-grid { display:grid; grid-template-columns:repeat(7, minmax(0,1fr)); gap:6px; }
+  .cal-dow { text-align:center; font-weight:800; font-size:12px; color:#000; padding:4px 0; }
+  .cal-day {
+    min-height:62px; border:2px solid #7dd3fc; background:#f0f9ff; color:#000;
+    border-radius:10px; padding:5px; cursor:pointer; text-align:left; font-size:13px;
+  }
+  .cal-day.other { opacity:.35; cursor:default; }
+  .cal-day.today { border-color:#f97316; background:#ffedd5; }
+  .cal-day .count { display:block; margin-top:4px; font-size:11px; font-weight:800; background:#2563eb; color:#fff; border-radius:999px; padding:1px 6px; width:fit-content; }
+  .modal-backdrop {
+    display:none; position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:50;
+    align-items:flex-end; justify-content:center;
+  }
+  .modal-backdrop.open { display:flex; }
+  .modal {
+    background:#fff; color:#000; width:100%; max-width:560px; max-height:88vh; overflow:auto;
+    border-radius:20px 20px 0 0; padding:18px;
+  }
+  @media (min-width:640px){ .modal-backdrop{align-items:center;} .modal{border-radius:20px;} }
+  .att-row { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:10px 0; border-bottom:1px solid #e2e8f0; flex-wrap:wrap; }
+  .toggle { display:flex; gap:6px; }
+  .toggle button { padding:8px 12px; border-radius:999px; border:2px solid #334155; background:#fff; color:#000; font-weight:800; cursor:pointer; }
+  .toggle button.on-present { background:#22c55e; color:#000; }
+  .toggle button.on-absent { background:#ef4444; color:#fff; }
+  .quick { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
+  .quick button { padding:6px 10px; border-radius:999px; border:2px solid #0284c7; background:#e0f2fe; color:#000; font-weight:700; cursor:pointer; }
+  nav.bottom {
+    position:fixed; left:0; right:0; bottom:0; z-index:30;
+    background:#fff; border-top:2px solid #0284c7; display:flex;
+  }
+  nav.bottom button {
+    flex:1 1 0; min-width:0; padding:12px 2px 14px; background:none; border:none;
+    font-weight:800; color:#000; cursor:pointer; font-size:13px;
+  }
+  nav.bottom button.active { background:#dbeafe; color:#000; box-shadow:inset 0 3px 0 #f97316; }
+  .hidden { display:none !important; }
+  /* Status toast: subtle save / email notifications */
+  #toast {
+    position:fixed; left:50%; transform:translateX(-50%); bottom:96px; z-index:60;
+    background:#000; color:#fff; font-weight:700; font-size:14px;
+    padding:10px 16px; border-radius:999px; max-width:92vw; text-align:center;
+    box-shadow:0 4px 16px rgba(0,0,0,.35); display:none;
+  }
+  #toast.show { display:block; }
+  .auth-wrap { max-width:480px; margin:0 auto; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Class Attendance Tracker</h1>
+  <p style="color:#fff;">Students, attendance, summaries &amp; payments — saved in Supabase, synced across your devices.</p>
+  <div class="header-actions">
+    <button id="exportBtn" type="button" class="hidden">⬇ Export backup (JSON)</button>
+    <button id="signOutBtn" type="button" class="hidden">Sign out</button>
+  </div>
+</header>
+
+<main>
+  <!-- SETUP NEEDED (config.js still has PASTE_ placeholders) -->
+  <section id="setupScreen" class="hidden">
+    <div class="card">
+      <h2>⚙️ Setup needed</h2>
+      <p><strong>This tracker is not connected to Supabase yet.</strong> The file <code>config.js</code> still contains placeholder values (<code>PASTE_…</code>).</p>
+      <p>To finish setup, follow <strong>SETUP.md</strong>:</p>
+      <p>1. In Supabase, run <code>supabase.sql</code> in the SQL Editor.<br>
+         2. Create your login user under Authentication → Users, and disable public sign-ups.<br>
+         3. Copy your <strong>Project URL</strong> and <strong>anon / publishable key</strong> (Settings → API) into <code>config.js</code>.<br>
+         4. Upload the updated <code>config.js</code> to GitHub and reload this page.</p>
+      <p class="muted">Never put a service_role key or any password in config.js — only the Project URL and the anon key belong there.</p>
+    </div>
+  </section>
+
+  <!-- LOGIN GATE (no public sign-up) -->
+  <section id="authScreen" class="hidden">
+    <div class="auth-wrap">
+      <div class="card">
+        <h2>Sign in</h2>
+        <p class="muted">This tracker is private. Sign in with the account created for you in Supabase (Authentication → Users). There is no public sign-up.</p>
+        <form id="loginForm">
+          <label for="loginEmail">Email</label>
+          <input id="loginEmail" type="email" required autocomplete="username" placeholder="you@example.com">
+          <label for="loginPassword">Password</label>
+          <input id="loginPassword" type="password" required autocomplete="current-password" placeholder="Password">
+          <p id="loginError" class="error hidden"></p>
+          <div style="margin-top:14px;"><button class="btn btn-primary" type="submit" id="loginBtn">Sign in</button></div>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <!-- APP (hidden until signed in) -->
+  <div id="appContent" class="hidden">
+  <div class="top-tabs" role="tablist">
+    <button data-nav="students" class="active" type="button">Students</button>
+    <button data-nav="attendance" type="button">Attendance</button>
+    <button data-nav="summary" type="button">Summary</button>
+    <button data-nav="payments" type="button">Payments</button>
+  </div>
+
+  <section id="screen-students" class="screen active">
+    <div class="card">
+      <h2 id="studentFormTitle">Add a student</h2>
+      <form id="studentForm">
+        <input type="hidden" id="studentId">
+        <div class="form-grid">
+          <div><label for="studentName">Name *</label><input id="studentName" required placeholder="Student name"></div>
+          <div><label for="studentRate">Pay per class ($) *</label><input id="studentRate" required type="number" min="0" step="0.01" inputmode="decimal" placeholder="e.g. 20"></div>
+          <div><label for="studentPhone">Phone (optional)</label><input id="studentPhone" type="tel" placeholder="Phone"></div>
+          <div><label for="studentJoined">Joined date (optional)</label><input id="studentJoined" type="date"></div>
+          <div class="full"><label for="studentNotes">Notes (optional)</label><textarea id="studentNotes" placeholder="Notes"></textarea></div>
+        </div>
+        <div class="row" style="margin-top:14px;">
+          <button class="btn btn-primary" type="submit" id="studentSubmitBtn">Add student</button>
+          <button class="btn hidden" type="button" id="studentCancelEdit">Cancel edit</button>
+        </div>
+      </form>
+    </div>
+    <div class="card">
+      <h3>Your students <span id="studentCount" class="muted"></span></h3>
+      <input id="studentSearch" type="search" placeholder="Search students…" aria-label="Search students">
+      <div id="studentList"></div>
+    </div>
+  </section>
+
+  <section id="screen-attendance" class="screen">
+    <div class="card">
+      <div class="cal-head">
+        <button class="btn btn-small" id="calPrev" type="button">← Prev</button>
+        <h3 id="calTitle">Month</h3>
+        <button class="btn btn-small" id="calNext" type="button">Next →</button>
+      </div>
+      <div class="row" style="margin-bottom:10px;"><button class="btn btn-primary btn-small" id="calToday" type="button">Mark attendance for today</button></div>
+      <div class="cal-grid" id="calDow"></div>
+      <div class="cal-grid" id="calGrid"></div>
+      <p class="muted">Tap <strong>any</strong> date — including past / older dates — to mark who came. Use Prev / Next to go back and backfill older classes. Only “Present” is charged.</p>
+    </div>
+  </section>
+
+  <section id="screen-summary" class="screen">
+    <div class="stats">
+      <div class="stat charged"><div>Total charged</div><div class="num" id="sumCharged">$0.00</div></div>
+      <div class="stat collected"><div>Total collected</div><div class="num" id="sumCollected">$0.00</div></div>
+      <div class="stat owed"><div>Owed to you</div><div class="num" id="sumOwed">$0.00</div></div>
+    </div>
+    <div class="card">
+      <h3>Per student</h3>
+      <div id="summaryList"></div>
+    </div>
+  </section>
+
+  <section id="screen-payments" class="screen">
+    <div class="card">
+      <h2>Record a payment</h2>
+      <form id="paymentForm">
+        <div class="form-grid">
+          <div class="full"><label for="payStudent">Student *</label><select id="payStudent" required></select></div>
+          <div><label for="payAmount">Amount ($) *</label><input id="payAmount" required type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="e.g. 40"></div>
+          <div><label for="payDate">Date *</label><input id="payDate" required type="date"></div>
+          <div><label for="payMethod">Method (optional)</label>
+            <select id="payMethod"><option value="">—</option><option>Cash</option><option>Card</option><option>Venmo</option><option>Zelle</option><option>Check</option><option>Other</option></select></div>
+          <div><label for="payNote">Note (optional)</label><input id="payNote" placeholder="Note"></div>
+        </div>
+        <div class="quick" id="quickAmounts">
+          <button type="button" data-amt="10">$10</button><button type="button" data-amt="20">$20</button>
+          <button type="button" data-amt="50">$50</button><button type="button" data-amt="100">$100</button>
+          <button type="button" id="payFullBtn">Pay full balance</button>
+        </div>
+        <p class="muted" id="payBalanceHint"></p>
+        <div style="margin-top:12px;"><button class="btn btn-primary" type="submit">Record payment</button></div>
+      </form>
+    </div>
+    <div class="card">
+      <h3>Payment history</h3>
+      <div id="paymentList"></div>
+    </div>
+  </section>
+  </div><!-- /appContent -->
+</main>
+
+<nav class="bottom hidden" id="bottomNav">
+  <button data-nav="students" class="active" type="button">Students</button>
+  <button data-nav="attendance" type="button">Attendance</button>
+  <button data-nav="summary" type="button">Summary</button>
+  <button data-nav="payments" type="button">Payments</button>
+</nav>
+
+<div class="modal-backdrop" id="attBackdrop">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="attTitle">
+    <h3 id="attTitle">Attendance</h3>
+    <div class="row" style="margin-bottom:8px;">
+      <button class="btn btn-small" id="attMarkAll" type="button">Mark all present</button>
+      <button class="btn btn-small" id="attClear" type="button">Clear</button>
+    </div>
+    <div id="attList"></div>
+    <div class="row" style="margin-top:16px;">
+      <button class="btn btn-primary" id="attSave" type="button">Save attendance</button>
+      <button class="btn" id="attClose" type="button">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script>
+"use strict";
+/* ================= Config & client ================= */
+const $ = id => document.getElementById(id);
+const CFG = window.APP_CONFIG || {};
+const configMissing =
+  !CFG.SUPABASE_URL || !CFG.SUPABASE_ANON_KEY ||
+  String(CFG.SUPABASE_URL).indexOf("PASTE_") === 0 ||
+  String(CFG.SUPABASE_ANON_KEY).indexOf("PASTE_") === 0 ||
+  typeof window.supabase === "undefined";
+
+let sb = null;        // Supabase client
+let session = null;   // current Auth session
+
+/* In-memory copy of the database rows (refreshed after every change). */
+let students = [];    // {id,name,rate,phone,notes,joined_date,active,created_at}
+let attendanceRows = []; // {id,student_id,class_date,present}
+let payments = [];    // {id,student_id,amount,payment_date,method,note,created_at}
+
+/* ================= Helpers ================= */
+const money = n => "$" + (Math.round((Number(n) || 0) * 100) / 100).toFixed(2);
+const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+const todayStr = () => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0"); };
+const dateKey = d => d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+
+let toastTimer = null;
+function showStatus(msg, longer) {
+  const t = $("toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("show"), longer ? 5000 : 3000);
+}
+function showError(prefix, err) {
+  console.error(prefix, err);
+  showStatus(prefix + ": " + (err && err.message ? err.message : "something went wrong"), true);
+}
+
+/* ================= Derived totals ================= */
+/* attendance map: { "YYYY-MM-DD": { student_id: "present"|"absent" } } */
+function attendanceMap() {
+  const map = {};
+  attendanceRows.forEach(r => {
+    if (!map[r.class_date]) map[r.class_date] = {};
+    map[r.class_date][r.student_id] = r.present ? "present" : "absent";
+  });
+  return map;
+}
+function attendedCount(studentId) {
+  return attendanceRows.filter(r => r.student_id === studentId && r.present).length;
+}
+function paidTotal(studentId) {
+  return payments.filter(p => p.student_id === studentId).reduce((s, p) => s + (Number(p.amount) || 0), 0);
+}
+function studentBalance(s) { return attendedCount(s.id) * (Number(s.rate) || 0) - paidTotal(s.id); }
+function studentById(id) { return students.find(s => s.id === id); }
+
+/* ================= Email notifications (non-blocking) =================
+   After a student or payment is saved, this asks the Supabase Edge
+   Function `notify` (if it exists) to email Keerthan + the other class
+   handler. It is FIRE-AND-FORGET: the save is already done and rendered
+   before this runs, it is never awaited by the save handlers, and any
+   failure is caught here and only reported as a subtle toast update
+   ("Saved ✓ (email failed)"). If notifications are not configured
+   (NOTIFY_ENABLED is not true in config.js), it skips silently.       */
+function notifyEvent(type, payload) {
+  try {
+    if (!CFG || CFG.NOTIFY_ENABLED !== true) return; // not configured: skip silently
+    if (!sb || !session || !session.access_token) return;
+    fetch(String(CFG.SUPABASE_URL).replace(/\/$/, "") + "/functions/v1/notify", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + session.access_token,
+        "apikey": CFG.SUPABASE_ANON_KEY
+      },
+      body: JSON.stringify({ type: type, payload: payload || {} })
+    }).then(res => {
+      if (!res.ok) showStatus("Saved ✓ (email failed)", true);
+    }).catch(() => { showStatus("Saved ✓ (email failed)", true); });
+  } catch (e) { /* notifications must never break the app */ }
+}
+
+/* ================= Data loading ================= */
+async function loadAll() {
+  const [sRes, aRes, pRes] = await Promise.all([
+    sb.from("students").select("*").order("created_at", { ascending: true }),
+    sb.from("attendance").select("*"),
+    sb.from("payments").select("*").order("payment_date", { ascending: false })
+  ]);
+  if (sRes.error) throw sRes.error;
+  if (aRes.error) throw aRes.error;
+  if (pRes.error) throw pRes.error;
+  students = sRes.data || [];
+  attendanceRows = aRes.data || [];
+  payments = pRes.data || [];
+}
+async function refreshAndRender(msg) {
+  try { await loadAll(); renderAll(); if (msg) showStatus(msg); }
+  catch (err) { showError("Could not load data", err); }
+}
+
+/* ================= Navigation ================= */
+function showScreen(name) {
+  document.querySelectorAll(".screen").forEach(el => el.classList.remove("active"));
+  const el = $("screen-" + name); if (el) el.classList.add("active");
+  document.querySelectorAll("[data-nav]").forEach(b => b.classList.toggle("active", b.dataset.nav === name));
+  renderAll();
+}
+document.querySelectorAll("[data-nav]").forEach(b => b.addEventListener("click", () => showScreen(b.dataset.nav)));
+
+/* ================= Auth (login gate, no sign-up UI) ================= */
+function showGate(which) {
+  $("setupScreen").classList.toggle("hidden", which !== "setup");
+  $("authScreen").classList.toggle("hidden", which !== "auth");
+  $("appContent").classList.toggle("hidden", which !== "app");
+  $("bottomNav").classList.toggle("hidden", which !== "app");
+  $("signOutBtn").classList.toggle("hidden", which !== "app");
+  $("exportBtn").classList.toggle("hidden", which !== "app");
+}
+$("loginForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  $("loginError").classList.add("hidden");
+  $("loginBtn").disabled = true;
+  const { data, error } = await sb.auth.signInWithPassword({
+    email: $("loginEmail").value.trim(),
+    password: $("loginPassword").value
+  });
+  $("loginBtn").disabled = false;
+  if (error) {
+    $("loginError").textContent = "Sign-in failed: " + error.message;
+    $("loginError").classList.remove("hidden");
+    return;
+  }
+  session = data.session;
+  showGate("app");
+  await refreshAndRender("Signed in ✓");
+});
+$("signOutBtn").addEventListener("click", async () => {
+  try { await sb.auth.signOut(); } catch (e) { /* still reset UI below */ }
+  session = null; students = []; attendanceRows = []; payments = [];
+  showGate("auth");
+});
+
+/* ================= Students ================= */
+function resetStudentForm() {
+  $("studentForm").reset(); $("studentId").value = "";
+  $("studentFormTitle").textContent = "Add a student";
+  $("studentSubmitBtn").textContent = "Add student";
+  $("studentCancelEdit").classList.add("hidden");
+}
+$("studentForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  const name = $("studentName").value.trim();
+  const rate = parseFloat($("studentRate").value);
+  if (!name || isNaN(rate) || rate < 0) { alert("Please enter a name and a valid pay-per-class rate."); return; }
+  const fields = {
+    name: name, rate: rate,
+    phone: $("studentPhone").value.trim() || null,
+    notes: $("studentNotes").value.trim() || null,
+    joined_date: $("studentJoined").value || null
+  };
+  const id = $("studentId").value;
+  $("studentSubmitBtn").disabled = true;
+  try {
+    if (id) {
+      const { error } = await sb.from("students").update(fields).eq("id", id);
+      if (error) throw error;
+      await refreshAndRender("Student updated ✓");
+    } else {
+      const { data: inserted, error } = await sb.from("students").insert(fields).select().single();
+      if (error) throw error;
+      await refreshAndRender("Saved ✓");
+      /* Non-blocking email hook (see notifyEvent): Keerthan + other handler. */
+      notifyEvent("student_added", {
+        name: inserted.name, rate: inserted.rate, phone: inserted.phone || "",
+        joined_date: inserted.joined_date || "", notes: inserted.notes || ""
+      });
+    }
+    resetStudentForm();
+  } catch (err) { showError("Could not save student", err); }
+  $("studentSubmitBtn").disabled = false;
+});
+$("studentCancelEdit").addEventListener("click", resetStudentForm);
+$("studentSearch").addEventListener("input", renderStudents);
+
+function renderStudents() {
+  if (!session) return;
+  const q = ($("studentSearch").value || "").toLowerCase();
+  const list = students.filter(s => (s.name || "").toLowerCase().includes(q));
+  $("studentCount").textContent = students.length ? "(" + students.length + ")" : "";
+  if (!students.length) {
+    $("studentList").innerHTML = '<div class="empty"><div class="big">👩‍🎓</div><p><strong>No students yet.</strong></p><p>Add your first student using the form above.</p></div>';
+    return;
+  }
+  if (!list.length) { $("studentList").innerHTML = '<p class="muted">No students match your search.</p>'; return; }
+  $("studentList").innerHTML = list.map(s => {
+    const initials = esc((s.name || "").split(/\s+/).map(w => w[0]).join("").slice(0, 2).toUpperCase());
+    return '<div class="student-item"><div class="row"><div class="avatar">' + initials + '</div><div>' +
+      '<strong>' + esc(s.name) + '</strong> <span class="badge rate">' + money(s.rate) + '/class</span> ' +
+      (s.active === false ? '<span class="badge paused">Paused</span>' : '<span class="badge">Active</span>') +
+      '<div class="muted">' + attendedCount(s.id) + ' classes · Balance: ' + money(studentBalance(s)) +
+      (s.phone ? ' · ' + esc(s.phone) : '') + (s.joined_date ? ' · Joined ' + esc(s.joined_date) : '') + '</div>' +
+      (s.notes ? '<div class="muted">' + esc(s.notes) + '</div>' : '') +
+      '</div></div><div class="row">' +
+      '<button class="btn btn-small" data-edit-student="' + s.id + '">Edit</button>' +
+      '<button class="btn btn-small" data-toggle-student="' + s.id + '">' + (s.active === false ? "Resume" : "Pause") + '</button>' +
+      '<button class="btn btn-small btn-danger" data-delete-student="' + s.id + '">Delete</button>' +
+      '</div></div>';
+  }).join("");
+  $("studentList").querySelectorAll("[data-edit-student]").forEach(b => b.addEventListener("click", () => {
+    const s = studentById(b.dataset.editStudent); if (!s) return;
+    $("studentId").value = s.id; $("studentName").value = s.name; $("studentRate").value = s.rate;
+    $("studentPhone").value = s.phone || ""; $("studentJoined").value = s.joined_date || ""; $("studentNotes").value = s.notes || "";
+    $("studentFormTitle").textContent = "Edit student"; $("studentSubmitBtn").textContent = "Save changes";
+    $("studentCancelEdit").classList.remove("hidden"); window.scrollTo({ top: 0, behavior: "smooth" });
+  }));
+  $("studentList").querySelectorAll("[data-toggle-student]").forEach(b => b.addEventListener("click", async () => {
+    const s = studentById(b.dataset.toggleStudent); if (!s) return;
+    const { error } = await sb.from("students").update({ active: s.active === false ? true : false }).eq("id", s.id);
+    if (error) { showError("Could not update student", error); return; }
+    refreshAndRender();
+  }));
+  $("studentList").querySelectorAll("[data-delete-student]").forEach(b => b.addEventListener("click", async () => {
+    const s = studentById(b.dataset.deleteStudent); if (!s) return;
+    if (!confirm('Delete "' + s.name + '"? Their attendance and payment history will also be removed.')) return;
+    const { error } = await sb.from("students").delete().eq("id", s.id);
+    if (error) { showError("Could not delete student", error); return; }
+    refreshAndRender("Student deleted ✓");
+  }));
+}
+
+/* ================= Attendance calendar =================
+   Any date is tappable — including past / older dates (for backfilling
+   classes from before this tracker existed). Prev/Next move by month,
+   with no lower or upper limit. */
+let calCursor = new Date(); calCursor.setDate(1);
+$("calDow").innerHTML = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d => '<div class="cal-dow">' + d + "</div>").join("");
+$("calPrev").addEventListener("click", () => { calCursor.setMonth(calCursor.getMonth() - 1); renderCalendar(); });
+$("calNext").addEventListener("click", () => { calCursor.setMonth(calCursor.getMonth() + 1); renderCalendar(); });
+$("calToday").addEventListener("click", () => openAttendance(todayStr()));
+
+function renderCalendar() {
+  if (!session) return;
+  const map = attendanceMap();
+  const y = calCursor.getFullYear(), m = calCursor.getMonth();
+  $("calTitle").textContent = calCursor.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  const firstDow = new Date(y, m, 1).getDay();
+  const daysInMonth = new Date(y, m + 1, 0).getDate();
+  const daysInPrev = new Date(y, m, 0).getDate();
+  let html = "";
+  for (let i = 0; i < 42; i++) {
+    let dayNum, key, other = false;
+    if (i < firstDow) { dayNum = daysInPrev - firstDow + 1 + i; key = dateKey(new Date(y, m - 1, dayNum)); other = true; }
+    else if (i >= firstDow + daysInMonth) { dayNum = i - firstDow - daysInMonth + 1; key = dateKey(new Date(y, m + 1, dayNum)); other = true; }
+    else { dayNum = i - firstDow + 1; key = dateKey(new Date(y, m, dayNum)); }
+    const rec = map[key] || {};
+    const present = Object.values(rec).filter(v => v === "present").length;
+    const marked = Object.keys(rec).length;
+    html += '<button type="button" class="cal-day' + (other ? " other" : "") + (key === todayStr() ? " today" : "") + '" data-date="' + key + '"' + (other ? " disabled" : "") + ">" +
+      dayNum + (marked ? '<span class="count">' + present + " ✓ present</span>" : "") + "</button>";
+    if (i >= firstDow + daysInMonth && (i + 1) % 7 === 0) break;
+  }
+  $("calGrid").innerHTML = html;
+  $("calGrid").querySelectorAll("[data-date]").forEach(b => b.addEventListener("click", () => openAttendance(b.dataset.date)));
+}
+
+/* ================= Attendance modal ================= */
+let attDate = null, attDraft = {};
+function openAttendance(key) {
+  if (!students.length) { alert("Add a student first, then you can mark attendance."); return; }
+  attDate = key; attDraft = Object.assign({}, attendanceMap()[key] || {});
+  $("attTitle").textContent = "Attendance — " + new Date(key + "T12:00:00").toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+  renderAttList(); $("attBackdrop").classList.add("open");
+}
+function renderAttList() {
+  const list = students.filter(s => s.active !== false || attDraft[s.id]);
+  $("attList").innerHTML = list.map(s =>
+    '<div class="att-row"><div><strong>' + esc(s.name) + '</strong><div class="muted">' + money(s.rate) + '/class</div></div>' +
+    '<div class="toggle"><button type="button" data-att="' + s.id + ':present" class="' + (attDraft[s.id] === "present" ? "on-present" : "") + '">✓ Present</button>' +
+    '<button type="button" data-att="' + s.id + ':absent" class="' + (attDraft[s.id] === "absent" ? "on-absent" : "") + '">✕ Absent</button></div></div>'
+  ).join("") || '<p class="muted">No active students.</p>';
+  $("attList").querySelectorAll("[data-att]").forEach(b => b.addEventListener("click", () => {
+    const parts = b.dataset.att.split(":"); const id = parts[0], val = parts[1];
+    attDraft[id] = attDraft[id] === val ? undefined : val;
+    if (!attDraft[id]) delete attDraft[id];
+    renderAttList();
+  }));
+}
+$("attMarkAll").addEventListener("click", () => { students.filter(s => s.active !== false).forEach(s => attDraft[s.id] = "present"); renderAttList(); });
+$("attClear").addEventListener("click", () => { attDraft = {}; renderAttList(); });
+$("attClose").addEventListener("click", () => $("attBackdrop").classList.remove("open"));
+$("attBackdrop").addEventListener("click", e => { if (e.target === $("attBackdrop")) $("attBackdrop").classList.remove("open"); });
+/* Save strategy: replace that date's rows (delete + insert), so clearing
+   a day or un-marking a student is handled too, and upsert semantics on
+   the unique (student_id, class_date) constraint are respected. */
+$("attSave").addEventListener("click", async () => {
+  $("attSave").disabled = true;
+  try {
+    const { error: delErr } = await sb.from("attendance").delete().eq("class_date", attDate);
+    if (delErr) throw delErr;
+    const rows = Object.keys(attDraft).map(sid => ({
+      student_id: sid, class_date: attDate, present: attDraft[sid] === "present"
+    }));
+    if (rows.length) {
+      const { error: insErr } = await sb.from("attendance")
+        .upsert(rows, { onConflict: "student_id,class_date" });
+      if (insErr) throw insErr;
+    }
+    $("attBackdrop").classList.remove("open");
+    await refreshAndRender("Attendance saved ✓");
+  } catch (err) { showError("Could not save attendance", err); }
+  $("attSave").disabled = false;
+});
+
+/* ================= Summary ================= */
+function renderSummary() {
+  if (!session) return;
+  let charged = 0, collected = 0;
+  students.forEach(s => { charged += attendedCount(s.id) * (Number(s.rate) || 0); collected += paidTotal(s.id); });
+  $("sumCharged").textContent = money(charged);
+  $("sumCollected").textContent = money(collected);
+  $("sumOwed").textContent = money(charged - collected);
+  if (!students.length) {
+    $("summaryList").innerHTML = '<div class="empty"><div class="big">📊</div><p><strong>No students yet.</strong></p><p>Add a student and mark attendance to see totals here.</p></div>';
+    return;
+  }
+  $("summaryList").innerHTML = '<table><thead><tr><th>Student</th><th>Classes</th><th>Total cost</th><th>Paid</th><th>Balance due</th></tr></thead><tbody>' +
+    students.map(s => {
+      const n = attendedCount(s.id), cost = n * (Number(s.rate) || 0), paid = paidTotal(s.id);
+      return "<tr><td><strong>" + esc(s.name) + '</strong><div class="muted">' + money(s.rate) + "/class</div></td><td>" + n + "</td><td>" + money(cost) + "</td><td>" + money(paid) + "</td><td><strong>" + money(cost - paid) + "</strong></td></tr>";
+    }).join("") + "</tbody></table>";
+}
+
+/* ================= Payments ================= */
+function renderPayments() {
+  if (!session) return;
+  const sel = $("payStudent"); const prev = sel.value;
+  sel.innerHTML = students.length
+    ? students.map(s => '<option value="' + s.id + '">' + esc(s.name) + " — balance " + money(studentBalance(s)) + "</option>").join("")
+    : '<option value="">No students yet</option>';
+  if (prev && studentById(prev)) sel.value = prev;
+  updatePayHint();
+  if (!payments.length) {
+    $("paymentList").innerHTML = '<div class="empty"><div class="big">💵</div><p><strong>No payments yet.</strong></p><p>Record a payment above and it will show up here.</p></div>';
+    return;
+  }
+  const sorted = payments.slice().sort((a, b) => (b.payment_date || "").localeCompare(a.payment_date || "") || (b.created_at || "").localeCompare(a.created_at || ""));
+  $("paymentList").innerHTML = sorted.map(p => {
+    const s = studentById(p.student_id);
+    return '<div class="payment-item"><div><strong>' + money(p.amount) + '</strong> — ' + esc(s ? s.name : "(deleted student)") +
+      '<div class="muted">' + esc(p.payment_date || "") + (p.method ? " · " + esc(p.method) : "") + (p.note ? " · " + esc(p.note) : "") + "</div></div>" +
+      '<button class="btn btn-small btn-danger" data-delete-payment="' + p.id + '">Delete</button></div>';
+  }).join("");
+  $("paymentList").querySelectorAll("[data-delete-payment]").forEach(b => b.addEventListener("click", async () => {
+    if (!confirm("Delete this payment? The student's balance will go back up.")) return;
+    const { error } = await sb.from("payments").delete().eq("id", b.dataset.deletePayment);
+    if (error) { showError("Could not delete payment", error); return; }
+    refreshAndRender("Payment deleted ✓");
+  }));
+}
+function updatePayHint() {
+  const s = studentById($("payStudent").value);
+  $("payBalanceHint").textContent = s ? s.name + "'s current balance: " + money(studentBalance(s)) : "";
+}
+$("payStudent").addEventListener("change", updatePayHint);
+$("quickAmounts").querySelectorAll("[data-amt]").forEach(b => b.addEventListener("click", () => { $("payAmount").value = b.dataset.amt; }));
+$("payFullBtn").addEventListener("click", () => {
+  const s = studentById($("payStudent").value); if (!s) return;
+  const bal = studentBalance(s);
+  if (bal <= 0) { alert(s.name + " has no balance due."); return; }
+  $("payAmount").value = bal.toFixed(2);
+});
+$("paymentForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  const studentId = $("payStudent").value;
+  const amount = parseFloat($("payAmount").value);
+  if (!studentId) { alert("Add a student first."); return; }
+  if (isNaN(amount) || amount <= 0) { alert("Enter a valid payment amount."); return; }
+  const fields = {
+    student_id: studentId, amount: amount,
+    payment_date: $("payDate").value || todayStr(),
+    method: $("payMethod").value || null,
+    note: $("payNote").value.trim() || null
+  };
+  try {
+    const { data: inserted, error } = await sb.from("payments").insert(fields).select().single();
+    if (error) throw error;
+    $("payAmount").value = ""; $("payNote").value = "";
+    await refreshAndRender("Saved ✓");
+    const s = studentById(studentId);
+    showStatus("Payment recorded. New balance for " + (s ? s.name : "student") + ": " + money(s ? studentBalance(s) : 0), true);
+    /* Non-blocking email hook: Keerthan + the other class handler only.
+       NO receipt is sent to the student. */
+    notifyEvent("payment_received", {
+      student_name: s ? s.name : "", amount: inserted.amount,
+      payment_date: inserted.payment_date || "", method: inserted.method || "",
+      total_paid: s ? paidTotal(s.id) : 0,
+      balance: s ? studentBalance(s) : 0
+    });
+  } catch (err) { showError("Could not record payment", err); }
+});
+
+/* ================= Export backup (JSON) =================
+   Downloads everything currently loaded from Supabase.
+   Import is intentionally NOT included in this Supabase version: with a
+   real database as the source of truth, a browser-side "replace all"
+   import is risky and complicated. Restores should be done from a
+   Supabase dashboard backup, or ask Milo — see README.md. */
+$("exportBtn").addEventListener("click", () => {
+  const backup = {
+    version: 2, exported_at: new Date().toISOString(),
+    students: students, attendance: attendanceRows, payments: payments
+  };
+  const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "attendance-tracker-backup-" + todayStr() + ".json";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+});
+
+/* ================= Init ================= */
+function renderAll() { renderStudents(); renderCalendar(); renderSummary(); renderPayments(); }
+$("payDate").value = todayStr();
+
+if (configMissing) {
+  showGate("setup");
+} else {
+  sb = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY);
+  showGate("auth");
+  sb.auth.getSession().then(async ({ data }) => {
+    if (data && data.session) {
+      session = data.session;
+      showGate("app");
+      await refreshAndRender();
+    }
+  }).catch(err => console.error("Session check failed", err));
+  sb.auth.onAuthStateChange((_event, newSession) => { session = newSession; });
+}
+</script>
+</body>
+</html>
