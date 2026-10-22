@@ -58,7 +58,7 @@ click-by-click setup for Supabase, email notifications, and GitHub Pages.
 
 ## What the app does
 
-Four screens, switched from the bottom navigation (or the top tabs):
+Five screens, switched from the bottom navigation (or the top tabs):
 
 | Screen | What you do there |
 |---|---|
@@ -66,6 +66,7 @@ Four screens, switched from the bottom navigation (or the top tabs):
 | **Attendance** | A month calendar with Prev/Next navigation and no date limits. Days with saved attendance show a present count. Tap **any** date — today, a future date, or an older date for backfilling — and a sheet opens listing every student with Present / Absent toggles, plus Mark-all-present and Clear. Only **Present** is charged. |
 | **Summary** | Per student: classes attended, total cost, total paid, balance due. Overall cards at the top show total charged, total collected, and total owed across everyone. |
 | **Payments** | Record a payment: student, amount, date, method, note. Quick-amount buttons and a "Pay full balance" shortcut fill the amount for you, and a hint shows that student's current balance. History lists every payment, with delete. Recording or deleting a payment updates balances everywhere immediately. |
+| **Log** | The audit trail (added Oct 22, 2026). Every action in the app writes a row to the `audit_log` table — student added/updated/deleted/paused/resumed, payment recorded/deleted, attendance saved, sign-in, sign-out, backup export — with the acting user's email, a human-readable summary, full details (JSON), and a timestamp. On this screen you filter by **date** (a calendar day, local time), by **user**, and by **event type**, newest first — e.g. pick a date + a user to see everything that person did that day. |
 
 Plus: a **login gate** (nothing is visible until you sign in) and an
 **Export backup** button that downloads all students, attendance, and
@@ -145,16 +146,18 @@ Everything lives in one file, in three layers:
 One paste-and-run script for the Supabase SQL Editor. It:
 
 - enables `pgcrypto` for UUID generation,
-- creates the three tables (below) with foreign keys
-  (`on delete cascade` from students), `created_at` defaults, amount
-  checks (`rate >= 0`, `amount > 0`), a unique
-  `(student_id, class_date)` constraint on attendance, and indexes on
-  the foreign keys and `class_date`,
-- enables Row Level Security on all three tables and creates one
+- creates the four tables (below) — the three data tables with
+  foreign keys (`on delete cascade` from students), plus `audit_log`
+  (no foreign keys) — with `created_at` defaults, amount checks
+  (`rate >= 0`, `amount > 0`), a unique `(student_id, class_date)`
+  constraint on attendance, and indexes on the foreign keys,
+  `class_date`, and the audit log's timestamp/actor,
+- enables Row Level Security on all four tables and creates one
   policy per table: **authenticated users may do everything;
   anonymous visitors may do nothing.**
 
-It is written to be safe to run once on a fresh project. It contains
+It is written to be safe to run once on a fresh project and safe to
+re-run later (used to add `audit_log` on Oct 22, 2026). It contains
 no keys or passwords.
 
 ### Email notifications (`notify-function.ts`)
@@ -187,6 +190,22 @@ Attendance is modeled as *one row per student per class date*:
 
 Deleting a student cascades: their attendance and payment rows are
 deleted with them.
+
+A fourth table, `audit_log`, records app activity (it has no foreign
+keys, so audit rows survive even when the student/payment they refer
+to is deleted — the details JSON keeps the names and amounts):
+
+```text
+audit_log
+─────────────────────────────
+id           uuid  PK
+created_at   timestamptz  (when the action happened)
+actor_email  text         (signed-in user who did it)
+event_type   text         (student_added, payment_deleted, ...)
+entity       text         (student / payment / attendance / session / backup)
+summary      text         (human-readable one-liner)
+details      jsonb        (full payload, incl. previous values on updates)
+```
 
 ---
 
@@ -479,6 +498,18 @@ python3 -m http.server 8000
   *Requires the same one-time function redeploy described above —
   one redeploy covers all the new event types and the actor line.*
   (Redeploy confirmed by the owner the same evening.)
+- **Oct 22, 2026** — **Audit log added** at the owner's request: a
+  new `audit_log` table (in `supabase.sql` — re-running that file in
+  Supabase creates it; the file is idempotent) and a fifth screen,
+  **Log**. The app now writes an audit row for every action — student
+  added/updated/deleted/paused/resumed, payment recorded/deleted,
+  attendance saved, sign-in, sign-out, backup export — each with the
+  acting user's email, a readable summary, full JSON details, and a
+  timestamp. The Log screen filters by date, user, and event type
+  (newest first, up to 500 rows). Audit writes are fire-and-forget:
+  a failed write never blocks the action. Note the log starts from
+  this date — earlier activity exists only in the notification
+  emails.
 - **Oct 21, 2026 (fix)** — iOS Safari date-input overflow: on the
   owner's phone the **Joined date** field leaked past the card edge.
   iOS renders native date inputs at an intrinsic minimum width and

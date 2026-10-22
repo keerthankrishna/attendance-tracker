@@ -1,7 +1,9 @@
 -- =====================================================================
 -- Class Attendance Tracker — Supabase schema
 -- Paste this WHOLE file into: Supabase Dashboard -> SQL Editor -> New query
--- -> Run. It is safe to run once on a fresh project. It does NOT contain
+-- -> Run. It is safe to run on a fresh project AND safe to re-run later
+-- (every statement is "if not exists" / "drop policy if exists"), e.g.
+-- to add the audit_log table added 2026-10-22. It does NOT contain
 -- any keys or passwords.
 --
 -- App model: single owner. Row Level Security (RLS) is ON for every table,
@@ -66,11 +68,33 @@ create index if not exists payments_student_id_idx
   on public.payments (student_id);
 
 -- ---------------------------------------------------------------------
+-- audit_log  (one row per action taken in the app: who + what + when)
+-- Written by the website on every add / update / delete / attendance
+-- save / sign-in / sign-out / backup export. Read on the app's Log
+-- screen, filterable by date and by user (actor_email).
+-- ---------------------------------------------------------------------
+create table if not exists public.audit_log (
+  id          uuid primary key default gen_random_uuid(),
+  created_at  timestamptz not null default now(),
+  actor_email text,
+  event_type  text not null,
+  entity      text,
+  summary     text,
+  details     jsonb
+);
+
+create index if not exists audit_log_created_at_idx
+  on public.audit_log (created_at desc);
+create index if not exists audit_log_actor_email_idx
+  on public.audit_log (actor_email);
+
+-- ---------------------------------------------------------------------
 -- Row Level Security: enable on all tables
 -- ---------------------------------------------------------------------
 alter table public.students   enable row level security;
 alter table public.attendance enable row level security;
 alter table public.payments   enable row level security;
+alter table public.audit_log  enable row level security;
 
 -- Policies: authenticated users get full access; anon gets nothing.
 -- (drop first so re-running this file in the SQL Editor does not error)
@@ -93,6 +117,14 @@ create policy "authenticated full access"
 drop policy if exists "authenticated full access" on public.payments;
 create policy "authenticated full access"
   on public.payments
+  for all
+  to authenticated
+  using (true)
+  with check (true);
+
+drop policy if exists "authenticated full access" on public.audit_log;
+create policy "authenticated full access"
+  on public.audit_log
   for all
   to authenticated
   using (true)

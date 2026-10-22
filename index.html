@@ -198,6 +198,7 @@
     <button data-nav="attendance" type="button">Attendance</button>
     <button data-nav="summary" type="button">Summary</button>
     <button data-nav="payments" type="button">Payments</button>
+    <button data-nav="log" type="button">Log</button>
   </div>
 
   <section id="screen-students" class="screen active">
@@ -277,6 +278,38 @@
       <div id="paymentList"></div>
     </div>
   </section>
+
+  <section id="screen-log" class="screen">
+    <div class="card">
+      <h2>Audit log</h2>
+      <p class="muted">Every action in the app — additions, updates, deletions, attendance saves, sign-ins — with who did it and when. Pick a date and/or a user to see everything they did.</p>
+      <div class="form-grid">
+        <div><label for="logDate">Date</label><input id="logDate" type="date"></div>
+        <div><label for="logUser">User</label><select id="logUser"><option value="">All users</option></select></div>
+        <div><label for="logType">Event type</label>
+          <select id="logType">
+            <option value="">All events</option>
+            <option value="student_added">Student added</option>
+            <option value="student_updated">Student updated</option>
+            <option value="student_deleted">Student deleted</option>
+            <option value="student_paused">Student paused</option>
+            <option value="student_resumed">Student resumed</option>
+            <option value="payment_received">Payment received</option>
+            <option value="payment_deleted">Payment deleted</option>
+            <option value="attendance_saved">Attendance saved</option>
+            <option value="user_signed_in">Signed in</option>
+            <option value="user_signed_out">Signed out</option>
+            <option value="backup_exported">Backup exported</option>
+          </select></div>
+        <div style="display:flex;align-items:flex-end;gap:8px;">
+          <button class="btn btn-blue" type="button" id="logRefresh">Refresh</button>
+          <button class="btn" type="button" id="logClearFilters">Clear filters</button>
+        </div>
+      </div>
+      <p class="muted" id="logCount"></p>
+      <div id="logList"></div>
+    </div>
+  </section>
   </div><!-- /appContent -->
 </main>
 
@@ -285,6 +318,7 @@
   <button data-nav="attendance" type="button">Attendance</button>
   <button data-nav="summary" type="button">Summary</button>
   <button data-nav="payments" type="button">Payments</button>
+    <button data-nav="log" type="button">Log</button>
 </nav>
 
 <div class="modal-backdrop" id="attBackdrop">
@@ -392,6 +426,26 @@ function notifyEvent(type, payload) {
   } catch (e) { /* notifications must never break the app */ }
 }
 
+/* ================= Audit log =================
+   Every meaningful action is written to the `audit_log` table in
+   Supabase: who (the signed-in user's email), what (event_type +
+   human-readable summary + full details), and when (created_at).
+   Fire-and-forget like the emails: a failed audit write never blocks
+   the action itself. Viewable on the Log screen, filterable by date
+   and user. */
+async function auditLog(eventType, entity, summary, details) {
+  try {
+    if (!sb || !session) return;
+    await sb.from("audit_log").insert({
+      actor_email: (session.user && session.user.email) || null,
+      event_type: eventType,
+      entity: entity || null,
+      summary: summary || null,
+      details: details || null
+    });
+  } catch (e) { /* audit must never break the app */ }
+}
+
 /* ================= Data loading ================= */
 async function loadAll() {
   const [sRes, aRes, pRes] = await Promise.all([
@@ -417,6 +471,7 @@ function showScreen(name) {
   const el = $("screen-" + name); if (el) el.classList.add("active");
   document.querySelectorAll("[data-nav]").forEach(b => b.classList.toggle("active", b.dataset.nav === name));
   renderAll();
+  if (name === "log") loadLog();
 }
 document.querySelectorAll("[data-nav]").forEach(b => b.addEventListener("click", () => showScreen(b.dataset.nav)));
 
@@ -446,8 +501,10 @@ $("loginForm").addEventListener("submit", async e => {
   session = data.session;
   showGate("app");
   await refreshAndRender("Signed in ✓");
+  auditLog("user_signed_in", "session", "Signed in", {});
 });
 $("signOutBtn").addEventListener("click", async () => {
+  await auditLog("user_signed_out", "session", "Signed out", {});
   try { await sb.auth.signOut(); } catch (e) { /* still reset UI below */ }
   session = null; students = []; attendanceRows = []; payments = [];
   showGate("auth");
@@ -479,6 +536,9 @@ $("studentForm").addEventListener("submit", async e => {
       const { error } = await sb.from("students").update(fields).eq("id", id);
       if (error) throw error;
       await refreshAndRender("Student updated ✓");
+      auditLog("student_updated", "student",
+        "Updated student " + fields.name + " (" + money(fields.rate) + "/class)",
+        { student_id: id, name: fields.name, rate: fields.rate, phone: fields.phone, joined_date: fields.joined_date, notes: fields.notes, prev_name: prev ? prev.name : null, prev_rate: prev ? prev.rate : null });
       notifyEvent("student_updated", {
         name: fields.name, rate: fields.rate, phone: fields.phone || "",
         joined_date: fields.joined_date || "", notes: fields.notes || "",
@@ -488,6 +548,9 @@ $("studentForm").addEventListener("submit", async e => {
       const { data: inserted, error } = await sb.from("students").insert(fields).select().single();
       if (error) throw error;
       await refreshAndRender("Saved ✓");
+      auditLog("student_added", "student",
+        "Added student " + inserted.name + " (" + money(inserted.rate) + "/class)",
+        { student_id: inserted.id, name: inserted.name, rate: inserted.rate, phone: inserted.phone, joined_date: inserted.joined_date, notes: inserted.notes });
       /* Non-blocking email hook (see notifyEvent): Keerthan + other handler. */
       notifyEvent("student_added", {
         name: inserted.name, rate: inserted.rate, phone: inserted.phone || "",
@@ -536,6 +599,9 @@ function renderStudents() {
     const s = studentById(b.dataset.toggleStudent); if (!s) return;
     const { error } = await sb.from("students").update({ active: s.active === false ? true : false }).eq("id", s.id);
     if (error) { showError("Could not update student", error); return; }
+    auditLog(s.active === false ? "student_resumed" : "student_paused", "student",
+      (s.active === false ? "Resumed student " : "Paused student ") + s.name,
+      { student_id: s.id, name: s.name });
     refreshAndRender();
   }));
   $("studentList").querySelectorAll("[data-delete-student]").forEach(b => b.addEventListener("click", async () => {
@@ -543,6 +609,9 @@ function renderStudents() {
     if (!confirm('Delete "' + s.name + '"? Their attendance and payment history will also be removed.')) return;
     const { error } = await sb.from("students").delete().eq("id", s.id);
     if (error) { showError("Could not delete student", error); return; }
+    auditLog("student_deleted", "student",
+      "Deleted student " + s.name + " (" + money(s.rate) + "/class) — with all their attendance and payments",
+      { student_id: s.id, name: s.name, rate: s.rate, joined_date: s.joined_date });
     notifyEvent("student_deleted", {
       name: s.name, rate: s.rate, joined_date: s.joined_date || ""
     });
@@ -630,6 +699,11 @@ $("attSave").addEventListener("click", async () => {
     $("attBackdrop").classList.remove("open");
     await refreshAndRender("Attendance saved ✓");
     const nameOf = sid => { const st = studentById(sid); return st ? st.name : ""; };
+    auditLog("attendance_saved", "attendance",
+      "Attendance for " + attDate + ": " + rows.filter(r => r.present).length + " present, " + rows.filter(r => !r.present).length + " absent",
+      { class_date: attDate,
+        present: rows.filter(r => r.present).map(r => nameOf(r.student_id)).filter(Boolean),
+        absent: rows.filter(r => !r.present).map(r => nameOf(r.student_id)).filter(Boolean) });
     notifyEvent("attendance_saved", {
       class_date: attDate,
       present_count: rows.filter(r => r.present).length,
@@ -687,6 +761,9 @@ function renderPayments() {
     const { error } = await sb.from("payments").delete().eq("id", b.dataset.deletePayment);
     if (error) { showError("Could not delete payment", error); return; }
     if (pmt) {
+      auditLog("payment_deleted", "payment",
+        "Deleted payment " + money(pmt.amount) + " from " + (stu ? stu.name : "(deleted student)") + " (balance " + money((stu ? studentBalance(stu) : 0) + (Number(pmt.amount) || 0)) + ")",
+        { payment_id: pmt.id, student_id: pmt.student_id, student_name: stu ? stu.name : null, amount: pmt.amount, payment_date: pmt.payment_date, method: pmt.method });
       notifyEvent("payment_deleted", {
         student_name: stu ? stu.name : "(deleted student)",
         amount: pmt.amount, payment_date: pmt.payment_date || "", method: pmt.method || "",
@@ -729,6 +806,9 @@ $("paymentForm").addEventListener("submit", async e => {
     await refreshAndRender("Saved ✓");
     const s = studentById(studentId);
     showStatus("Payment recorded. New balance for " + (s ? s.name : "student") + ": " + money(s ? studentBalance(s) : 0), true);
+    auditLog("payment_received", "payment",
+      "Payment " + money(inserted.amount) + " from " + (s ? s.name : "student") + " (balance " + money(s ? studentBalance(s) : 0) + ")",
+      { payment_id: inserted.id, student_id: studentId, student_name: s ? s.name : null, amount: inserted.amount, payment_date: inserted.payment_date, method: inserted.method, note: inserted.note, balance: s ? studentBalance(s) : null });
     /* Non-blocking email hook: Keerthan + the other class handler only.
        NO receipt is sent to the student. */
     notifyEvent("payment_received", {
@@ -740,6 +820,59 @@ $("paymentForm").addEventListener("submit", async e => {
   } catch (err) { showError("Could not record payment", err); }
 });
 
+/* ================= Audit log screen =================
+   Reads the audit_log table. Date filter = that calendar day in the
+   viewer's local timezone; user filter = actor_email; type filter is
+   applied on the fetched rows. Newest first, up to 500 rows. */
+let logRows = [];
+let logInitialized = false;
+async function loadLog() {
+  if (!session) return;
+  if (!logInitialized) { $("logDate").value = todayStr(); logInitialized = true; }
+  const dateVal = $("logDate").value;
+  const listEl = $("logList");
+  listEl.innerHTML = '<p class="muted">Loading…</p>';
+  let q = sb.from("audit_log").select("*").order("created_at", { ascending: false }).limit(500);
+  if (dateVal) {
+    const start = new Date(dateVal + "T00:00:00");
+    const end = new Date(start); end.setDate(end.getDate() + 1);
+    q = q.gte("created_at", start.toISOString()).lt("created_at", end.toISOString());
+  }
+  const userVal = $("logUser").value;
+  if (userVal) q = q.eq("actor_email", userVal);
+  const { data, error } = await q;
+  if (error) {
+    listEl.innerHTML = '<div class="error">Could not load the audit log. If the audit table is new, run the updated supabase.sql once in Supabase (SQL Editor → Run) to create it, then refresh. (' + esc(error.message) + ')</div>';
+    $("logCount").textContent = "";
+    return;
+  }
+  logRows = data || [];
+  const sel = $("logUser"); const cur = sel.value;
+  const actors = [...new Set(logRows.map(r => r.actor_email).filter(Boolean))].sort();
+  if (cur && !actors.includes(cur)) actors.push(cur);
+  sel.innerHTML = '<option value="">All users</option>' + actors.map(a => '<option value="' + esc(a) + '"' + (a === cur ? " selected" : "") + '>' + esc(a) + '</option>').join("");
+  renderLog();
+}
+function renderLog() {
+  const type = $("logType").value;
+  const rows = type ? logRows.filter(r => r.event_type === type) : logRows;
+  $("logCount").textContent = rows.length + " event" + (rows.length === 1 ? "" : "s") + " shown";
+  if (!rows.length) {
+    $("logList").innerHTML = '<div class="empty"><div class="big">🗒️</div><p><strong>No events found.</strong></p><p>Try another date, or clear the filters to see everything.</p></div>';
+    return;
+  }
+  $("logList").innerHTML = rows.map(r => {
+    const when = r.created_at ? new Date(r.created_at).toLocaleString() : "";
+    return '<div class="payment-item"><div><strong>' + esc(r.summary || r.event_type) + '</strong>' +
+      '<div class="muted">' + esc(when) + ' · by ' + esc(r.actor_email || "unknown") + ' · ' + esc(r.event_type) + '</div></div></div>';
+  }).join("");
+}
+$("logRefresh").addEventListener("click", loadLog);
+$("logDate").addEventListener("change", loadLog);
+$("logUser").addEventListener("change", loadLog);
+$("logType").addEventListener("change", renderLog);
+$("logClearFilters").addEventListener("click", () => { $("logDate").value = ""; $("logUser").value = ""; $("logType").value = ""; loadLog(); });
+
 /* ================= Export backup (JSON) =================
    Downloads everything currently loaded from Supabase.
    Import is intentionally NOT included in this Supabase version: with a
@@ -747,6 +880,7 @@ $("paymentForm").addEventListener("submit", async e => {
    import is risky and complicated. Restores should be done from a
    Supabase dashboard backup, or ask Milo — see README.md. */
 $("exportBtn").addEventListener("click", () => {
+  auditLog("backup_exported", "backup", "Exported a JSON backup", {});
   const backup = {
     version: 2, exported_at: new Date().toISOString(),
     students: students, attendance: attendanceRows, payments: payments
