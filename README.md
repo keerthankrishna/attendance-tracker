@@ -69,6 +69,9 @@ is enforced by Supabase Row Level Security (see
 [Security model](#security-model)), not just by hiding things in the
 UI. The **admin** (`kkeerthan@gmail.com`) sees and can open **all**
 classes (each card shows its owner), and can create classes too.
+A class can be **deleted** from its picker card — the app asks you
+to type the class name to confirm, because the delete cascades to
+everything inside it.
 
 Inside a class, five screens, switched from the bottom navigation
 (or the top tabs):
@@ -532,6 +535,14 @@ python3 -m http.server 8000
   *Requires the same one-time function redeploy described above —
   one redeploy covers all the new event types and the actor line.*
   (Redeploy confirmed by the owner the same evening.)
+- **Oct 22, 2026** — **Delete class added** (it was deliberately
+  held back in v2 because one tap would wipe a whole tracker): each
+  class card on the picker now has a **Delete** button, guarded by a
+  type-the-class-name prompt. Deleting cascades to the class's
+  students, attendance, and payments; audit entries survive. New
+  `class_deleted` audit event and email. *The email needs the usual
+  one-time `notify` redeploy; deleting itself and the audit row work
+  without it.*
 - **Oct 22, 2026 (v2)** — **Multi-class + multi-user:** a new
   `classes` table and class picker. Each login user creates their
   own classes (Music, Art, …), each a separate tracker; all data is

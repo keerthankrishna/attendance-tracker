@@ -310,6 +310,8 @@
         <div><label for="logType">Event type</label>
           <select id="logType">
             <option value="">All events</option>
+            <option value="class_created">Class created</option>
+            <option value="class_deleted">Class deleted</option>
             <option value="student_added">Student added</option>
             <option value="student_updated">Student updated</option>
             <option value="student_deleted">Student deleted</option>
@@ -581,11 +583,27 @@ function renderClassList() {
       (own ? '<span class="badge">Yours</span>' : '<span class="badge rate">Owner: ' + esc(c.owner_email || "") + '</span>') +
       (c.note ? '<div class="muted">' + esc(c.note) + '</div>' : '') +
       '<div class="muted">Created ' + (c.created_at ? new Date(c.created_at).toLocaleDateString() : "") + '</div></div>' +
-      '<button class="btn btn-primary btn-small" data-open-class="' + c.id + '">Open →</button></div>';
+      '<div class="row"><button class="btn btn-primary btn-small" data-open-class="' + c.id + '">Open →</button>' +
+      '<button class="btn btn-danger btn-small" data-delete-class="' + c.id + '">Delete</button></div></div>';
   }).join("");
   $("classList").querySelectorAll("[data-open-class]").forEach(b => b.addEventListener("click", () => {
     const c = classes.find(x => x.id === b.dataset.openClass);
     if (c) enterClass(c);
+  }));
+  $("classList").querySelectorAll("[data-delete-class]").forEach(b => b.addEventListener("click", async () => {
+    const c = classes.find(x => x.id === b.dataset.deleteClass);
+    if (!c) return;
+    /* Deleting a class deletes everything inside it, so this asks for
+       the class name to be typed rather than a single confirm tap. */
+    const typed = prompt('Delete the class "' + c.name + '"?\n\nThis permanently deletes the class AND all its students, attendance and payments. The audit log entries are kept.\n\nType the class name to confirm:');
+    if (typed === null || typed.trim() !== c.name) { if (typed !== null) alert("Name did not match — class not deleted."); return; }
+    const { error } = await sb.from("classes").delete().eq("id", c.id);
+    if (error) { showError("Could not delete class", error); return; }
+    auditLog("class_deleted", "class", "Deleted class " + c.name + " (owner: " + (c.owner_email || "") + ")", { class_id: c.id, name: c.name, owner_email: c.owner_email }, c);
+    notifyEvent("class_deleted", { class_id: c.id, class_name: c.name, name: c.name, owner_email: c.owner_email || "" });
+    classes = classes.filter(x => x.id !== c.id);
+    renderClassList();
+    showStatus("Class deleted ✓");
   }));
 }
 async function enterClass(c) {

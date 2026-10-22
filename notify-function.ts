@@ -79,6 +79,13 @@ Deno.serve(async (req: Request) => {
         `Class: ${p.name || p.class_name || ""}`,
         p.note ? `Note: ${p.note}` : "",
       ].filter(Boolean);
+    } else if (type === "class_deleted") {
+      subject = `Class deleted: ${p.name || p.class_name || ""}`;
+      lines = [
+        `A class was deleted, with all its students, attendance and payments.`,
+        `Class: ${p.name || p.class_name || ""}`,
+        p.owner_email ? `Class owner: ${p.owner_email}` : "",
+      ].filter(Boolean);
     } else if (type === "student_added") {
       subject = `New student added: ${p.name || ""}`;
       lines = [
@@ -148,7 +155,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    if (p.class_name && type !== "class_created") lines.unshift(`Class: ${p.class_name}`);
+    if (p.class_name && type !== "class_created" && type !== "class_deleted") lines.unshift(`Class: ${p.class_name}`);
     if (p.actor) lines.push(`Changed by: ${p.actor}`);
 
     const html =
