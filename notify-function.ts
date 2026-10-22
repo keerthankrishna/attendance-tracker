@@ -2,8 +2,10 @@
 // Class Attendance Tracker — `notify` Supabase Edge Function
 //
 // Sends notification emails to Keerthan + the other person who handles
-// the class, when a student is added or deleted, or a payment is
-// recorded or deleted.
+// the class, when a student is added, updated or deleted, a payment is
+// recorded or deleted, or attendance is saved. Every email includes
+// "Changed by: <email>" — the Supabase Auth login of the person who
+// made the change (the website attaches it from the session).
 // Recipients get a log/notification email. NO receipt is sent to
 // students/parents — this function only ever mails the NOTIFY_EMAILS list.
 //
@@ -104,6 +106,27 @@ Deno.serve(async (req: Request) => {
         p.method ? `Method was: ${p.method}` : "",
         `Balance now due: ${money(p.balance)}`,
       ].filter(Boolean);
+    } else if (type === "student_updated") {
+      subject = `Student updated: ${p.name || ""}`;
+      lines = [
+        `Name: ${p.name || ""}`,
+        (p.prev_name && p.prev_name !== p.name) ? `Name was: ${p.prev_name}` : "",
+        `Pay per class: ${money(p.rate)}`,
+        (p.prev_rate !== undefined && p.prev_rate !== "" && Number(p.prev_rate) !== Number(p.rate))
+          ? `Pay per class was: ${money(p.prev_rate)}` : "",
+        p.joined_date ? `Joined date: ${p.joined_date}` : "",
+        p.phone ? `Phone: ${p.phone}` : "",
+        p.notes ? `Notes: ${p.notes}` : "",
+      ].filter(Boolean);
+    } else if (type === "attendance_saved") {
+      subject =
+        `Attendance saved: ${p.class_date || ""} — ` +
+        `${p.present_count ?? 0} present, ${p.absent_count ?? 0} absent`;
+      lines = [
+        `Date: ${p.class_date || ""}`,
+        `Present (${p.present_count ?? 0}): ${p.present_names || "—"}`,
+        `Absent (${p.absent_count ?? 0}): ${p.absent_names || "—"}`,
+      ];
     } else if (type === "student_deleted") {
       subject = `Student deleted: ${p.name || ""}`;
       lines = [
@@ -118,6 +141,8 @@ Deno.serve(async (req: Request) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    if (p.actor) lines.push(`Changed by: ${p.actor}`);
 
     const html =
       `<div style="font-family:Arial,sans-serif;color:#000;">` +

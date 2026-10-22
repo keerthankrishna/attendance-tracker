@@ -362,6 +362,11 @@ function notifyEvent(type, payload) {
   try {
     if (!CFG || CFG.NOTIFY_ENABLED !== true) return; // not configured: skip silently
     if (!sb || !session || !session.access_token) return;
+    /* Who made this change: the signed-in user's email from their
+       Supabase Auth session, attached to every notification. */
+    const fullPayload = Object.assign({}, payload || {}, {
+      actor: (session.user && session.user.email) || ""
+    });
     fetch(String(CFG.SUPABASE_URL).replace(/\/$/, "") + "/functions/v1/notify", {
       method: "POST",
       headers: {
@@ -369,7 +374,7 @@ function notifyEvent(type, payload) {
         "Authorization": "Bearer " + session.access_token,
         "apikey": CFG.SUPABASE_ANON_KEY
       },
-      body: JSON.stringify({ type: type, payload: payload || {} })
+      body: JSON.stringify({ type: type, payload: fullPayload })
     }).then(res => {
       if (!res.ok) showStatus("Saved ✓ (email failed)", true);
     }).catch(() => { showStatus("Saved ✓ (email failed)", true); });
@@ -459,9 +464,15 @@ $("studentForm").addEventListener("submit", async e => {
   $("studentSubmitBtn").disabled = true;
   try {
     if (id) {
+      const prev = studentById(id);
       const { error } = await sb.from("students").update(fields).eq("id", id);
       if (error) throw error;
       await refreshAndRender("Student updated ✓");
+      notifyEvent("student_updated", {
+        name: fields.name, rate: fields.rate, phone: fields.phone || "",
+        joined_date: fields.joined_date || "", notes: fields.notes || "",
+        prev_name: prev ? prev.name : "", prev_rate: prev ? prev.rate : ""
+      });
     } else {
       const { data: inserted, error } = await sb.from("students").insert(fields).select().single();
       if (error) throw error;
@@ -607,6 +618,14 @@ $("attSave").addEventListener("click", async () => {
     }
     $("attBackdrop").classList.remove("open");
     await refreshAndRender("Attendance saved ✓");
+    const nameOf = sid => { const st = studentById(sid); return st ? st.name : ""; };
+    notifyEvent("attendance_saved", {
+      class_date: attDate,
+      present_count: rows.filter(r => r.present).length,
+      absent_count: rows.filter(r => !r.present).length,
+      present_names: rows.filter(r => r.present).map(r => nameOf(r.student_id)).filter(Boolean).join(", "),
+      absent_names: rows.filter(r => !r.present).map(r => nameOf(r.student_id)).filter(Boolean).join(", ")
+    });
   } catch (err) { showError("Could not save attendance", err); }
   $("attSave").disabled = false;
 });

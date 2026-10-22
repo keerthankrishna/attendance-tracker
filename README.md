@@ -264,6 +264,14 @@ Flow:
    - `Payment received: $<amount> from <name> (balance $<balance>)`
    - `Payment deleted: $<amount> from <name> (balance $<balance>)`
    - `Student deleted: <name>`
+   - `Student updated: <name>` — with any name/rate change noted
+   - `Attendance saved: <date> — N present, M absent` — with the names
+
+   Every notification ends with **`Changed by: <email>`** — the
+   Supabase Auth login of the person who made the change. The website
+   attaches it automatically from the signed-in session (there can be
+   more than one login: each handler signs in with their own account,
+   and their changes are attributed to them).
 
 Recipient addresses are deliberately **not** stored in this repo
 (see [Configuration and secrets](#configuration-and-secrets)).
@@ -461,6 +469,15 @@ python3 -m http.server 8000
   unaffected either way.* Both original triggers were verified live
   by the owner the same evening (student-added and payment emails
   received).
+- **Oct 21, 2026 (later still)** — **Actor attribution + edit/update
+  notifications:** every notification now ends with
+  `Changed by: <email>` (the signed-in user's Supabase Auth email,
+  attached automatically by the website), and two more event types
+  were added — `student_updated` and `attendance_saved`. The owner
+  also created a second Supabase Auth user so the other handler can
+  sign in with their own login and have their changes attributed.
+  *Requires the same one-time function redeploy described above —
+  one redeploy covers all the new event types and the actor line.*
 
 ---
 
