@@ -46,6 +46,17 @@
     font-size:16px; color:#000; background:#fff;
   }
   input::placeholder, textarea::placeholder { color:#000; opacity:.55; }
+  /* iOS Safari: native date inputs have an intrinsic minimum width and
+     ignore width:100%, leaking past the card edge (seen on the Joined
+     date field). Removing the native appearance makes them behave like
+     text inputs and stay inside their container. */
+  input[type="date"] {
+    -webkit-appearance:none; appearance:none; display:block;
+    width:100%; max-width:100%; min-width:0; min-height:48px;
+  }
+  input[type="date"]::-webkit-date-and-time-value { text-align:left; margin:0; }
+  input[type="date"]::-webkit-calendar-picker-indicator { margin-left:auto; }
+  .form-grid > div { min-width:0; }
   textarea { min-height:56px; resize:vertical; }
   /* Payments/any form grid: children can shrink, never overflow the card */
   .form-grid { display:grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap:12px; }

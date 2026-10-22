@@ -478,6 +478,13 @@ python3 -m http.server 8000
   sign in with their own login and have their changes attributed.
   *Requires the same one-time function redeploy described above —
   one redeploy covers all the new event types and the actor line.*
+  (Redeploy confirmed by the owner the same evening.)
+- **Oct 21, 2026 (fix)** — iOS Safari date-input overflow: on the
+  owner's phone the **Joined date** field leaked past the card edge.
+  iOS renders native date inputs at an intrinsic minimum width and
+  ignores `width:100%`; the fix removes the native appearance for
+  `input[type="date"]` (plus explicit width constraints) so both date
+  fields — Joined date and Payment date — stay inside the card.
 
 ---
 
