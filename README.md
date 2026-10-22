@@ -376,7 +376,7 @@ Deliberate choices, per the owner's feedback during testing:
 | `config.js` | Live site configuration: Supabase Project URL, anon key, and the notify flag — wired and live (`NOTIFY_ENABLED: true`) |
 | `config.example.js` | The config template with placeholder values |
 | `supabase.sql` | Database schema + Row Level Security policies — paste into the Supabase SQL Editor and Run |
-| `notify-function.ts` | Source of the `notify` Supabase Edge Function (Resend email notifications) — deployed to Supabase, not served by Pages |
+| `notify-function.ts` | Source of the `notify` Supabase Edge Function (Resend email notifications) — deployed to Supabase, not served by Pages. **Naming note:** in this repo the file is called `notify-function.ts` for clarity, but inside Supabase the same code lives as the `notify` function's **`index.ts`** — Supabase requires that entry-point name, so do not rename it there. Likewise the function itself must stay named `notify`, because the website calls `/functions/v1/notify`. |
 | `SETUP.md` | Step-by-step setup guide: Supabase → email → GitHub Pages, in order |
 | `README.md` | This file — what the app is and how it is built |
 
