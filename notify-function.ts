@@ -73,7 +73,13 @@ Deno.serve(async (req: Request) => {
     let subject = "";
     let lines: string[] = [];
 
-    if (type === "student_added") {
+    if (type === "class_created") {
+      subject = `New class created: ${p.name || p.class_name || ""}`;
+      lines = [
+        `Class: ${p.name || p.class_name || ""}`,
+        p.note ? `Note: ${p.note}` : "",
+      ].filter(Boolean);
+    } else if (type === "student_added") {
       subject = `New student added: ${p.name || ""}`;
       lines = [
         `Name: ${p.name || ""}`,
@@ -142,6 +148,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    if (p.class_name && type !== "class_created") lines.unshift(`Class: ${p.class_name}`);
     if (p.actor) lines.push(`Changed by: ${p.actor}`);
 
     const html =

@@ -58,7 +58,20 @@ click-by-click setup for Supabase, email notifications, and GitHub Pages.
 
 ## What the app does
 
-Five screens, switched from the bottom navigation (or the top tabs):
+**Classes (v2, added Oct 22, 2026):** the app is multi-user and
+multi-class. After signing in, each user lands on a **class picker**:
+they create one or more classes (Music, Art, Craft — whatever they
+teach) and each class is a self-contained tracker with its own
+students, attendance, summary, payments, and log. A **class bar**
+above the tabs shows the current class, with a *Switch class* button
+back to the picker. Users only ever see **their own** classes — this
+is enforced by Supabase Row Level Security (see
+[Security model](#security-model)), not just by hiding things in the
+UI. The **admin** (`kkeerthan@gmail.com`) sees and can open **all**
+classes (each card shows its owner), and can create classes too.
+
+Inside a class, five screens, switched from the bottom navigation
+(or the top tabs):
 
 | Screen | What you do there |
 |---|---|
@@ -191,6 +204,21 @@ Attendance is modeled as *one row per student per class date*:
 Deleting a student cascades: their attendance and payment rows are
 deleted with them.
 
+`classes` sits above `students` (students gained a `class_id`
+foreign key, `on delete cascade` — deleting a class removes its
+students, attendance, and payments):
+
+```text
+classes
+─────────────────────────────
+id           uuid  PK
+owner_id     uuid  (Supabase Auth user id of the creator)
+owner_email  text  (denormalized, for display/admin view)
+name         text  NOT NULL   (e.g. Music, Art, Craft)
+note         text  (optional)
+created_at   timestamptz
+```
+
 A fourth table, `audit_log`, records app activity (it has no foreign
 keys, so audit rows survive even when the student/payment they refer
 to is deleted — the details JSON keeps the names and amounts):
@@ -205,6 +233,8 @@ event_type   text         (student_added, payment_deleted, ...)
 entity       text         (student / payment / attendance / session / backup)
 summary      text         (human-readable one-liner)
 details      jsonb        (full payload, incl. previous values on updates)
+class_id     uuid         (class the action belongs to, when applicable)
+class_name   text         (denormalized class name)
 ```
 
 ---
@@ -243,12 +273,16 @@ Consequences worth knowing:
 - **Login is the real gate.** The app requires a Supabase Auth
   (email + password) session before it loads or shows any data, and
   every database request carries that user's token.
-- **Single-owner assumption.** Policies give *any* authenticated user
-  full access, which is correct for this app **only because** public
-  sign-ups are disabled in the Supabase project and the owner creates
-  the login account(s) manually (SETUP.md, section A). If sign-ups
-  were ever enabled, any stranger with an account could read the data —
-  keep them off.
+- **Per-user isolation (v2).** Policies are owner-based: a user can
+  only read/write classes where `owner_id` = their own auth user id,
+  and students/attendance/payments only inside those classes (checked
+  through the class chain). The **admin** email
+  (`kkeerthan@gmail.com`, matched from the login token) bypasses the
+  owner check and can access everything. Audit rows can be read by
+  their actor, by the owner of the class they belong to, or by the
+  admin; a user can only write audit rows under their own email.
+  Public sign-ups must still stay **disabled** (SETUP.md, section A)
+  — accounts are created manually for known people only.
 - **Never in this repo:** the `service_role` key (it bypasses RLS),
   any password, and the Resend API key. Those live only in the owner's
   accounts and in Supabase function secrets.
@@ -498,6 +532,17 @@ python3 -m http.server 8000
   *Requires the same one-time function redeploy described above —
   one redeploy covers all the new event types and the actor line.*
   (Redeploy confirmed by the owner the same evening.)
+- **Oct 22, 2026 (v2)** — **Multi-class + multi-user:** a new
+  `classes` table and class picker. Each login user creates their
+  own classes (Music, Art, …), each a separate tracker; all data is
+  scoped per class in the app *and* isolated per user by new
+  owner-based RLS policies. The admin (kkeerthan@gmail.com) sees and
+  can open every user's classes and create his own. Existing
+  students were migrated into a default **"My Class"** owned by the
+  admin (done inside `supabase.sql`, which is re-runnable). Emails
+  and audit rows now carry the class name/id; a new `class_created`
+  email event was added. *To activate: re-run `supabase.sql` in
+  Supabase and redeploy the `notify` function once more.*
 - **Oct 22, 2026** — **Audit log added** at the owner's request: a
   new `audit_log` table (in `supabase.sql` — re-running that file in
   Supabase creates it; the file is idempotent) and a fifth screen,

@@ -6,16 +6,34 @@
 -- to add the audit_log table added 2026-10-22. It does NOT contain
 -- any keys or passwords.
 --
--- App model: single owner. Row Level Security (RLS) is ON for every table,
--- and the only policies allow signed-in (authenticated) users to do
--- everything. Anonymous / public visitors can do NOTHING, even though the
--- anon key is visible in the browser — that is what RLS is for.
--- So: keep public sign-ups DISABLED (see SETUP.md) and create only your
--- own login user in Authentication -> Users.
+-- App model (v2, multi-class): every tracker is a "class" owned by the
+-- user who created it. Row Level Security (RLS) is ON for every table:
+-- a signed-in user can only see and change classes they own (and the
+-- students / attendance / payments inside them). The ADMIN
+-- (kkeerthan@gmail.com) can see and change everything.
+-- Anonymous / public visitors can do NOTHING, even though the anon key
+-- is visible in the browser — that is what RLS is for.
+-- So: keep public sign-ups DISABLED (see SETUP.md) and create login
+-- users only for the people who run classes.
 -- =====================================================================
 
 -- For gen_random_uuid()
 create extension if not exists pgcrypto;
+
+-- ---------------------------------------------------------------------
+-- classes  (one row per tracker a user creates: "Music", "Art", ...)
+-- ---------------------------------------------------------------------
+create table if not exists public.classes (
+  id          uuid primary key default gen_random_uuid(),
+  owner_id    uuid not null,
+  owner_email text not null,
+  name        text not null,
+  note        text,
+  created_at  timestamptz not null default now()
+);
+
+create index if not exists classes_owner_id_idx
+  on public.classes (owner_id);
 
 -- ---------------------------------------------------------------------
 -- students
@@ -28,8 +46,16 @@ create table if not exists public.students (
   notes       text,
   joined_date date,
   active      boolean not null default true,
+  class_id    uuid references public.classes (id) on delete cascade,
   created_at  timestamptz not null default now()
 );
+
+-- Existing installs (table already created without class_id):
+alter table public.students
+  add column if not exists class_id uuid references public.classes (id) on delete cascade;
+
+create index if not exists students_class_id_idx
+  on public.students (class_id);
 
 -- ---------------------------------------------------------------------
 -- attendance  (one row per student per class date)
@@ -83,6 +109,11 @@ create table if not exists public.audit_log (
   details     jsonb
 );
 
+alter table public.audit_log
+  add column if not exists class_id uuid;
+alter table public.audit_log
+  add column if not exists class_name text;
+
 create index if not exists audit_log_created_at_idx
   on public.audit_log (created_at desc);
 create index if not exists audit_log_actor_email_idx
@@ -91,44 +122,136 @@ create index if not exists audit_log_actor_email_idx
 -- ---------------------------------------------------------------------
 -- Row Level Security: enable on all tables
 -- ---------------------------------------------------------------------
+alter table public.classes    enable row level security;
 alter table public.students   enable row level security;
 alter table public.attendance enable row level security;
 alter table public.payments   enable row level security;
 alter table public.audit_log  enable row level security;
 
--- Policies: authenticated users get full access; anon gets nothing.
+-- ---------------------------------------------------------------------
+-- Migration for pre-v2 data: give the admin a default class and move
+-- any class-less students into it. Safe to re-run: the insert only
+-- happens if the admin owns no class yet, and the update only touches
+-- students whose class_id is still null.
+-- ---------------------------------------------------------------------
+insert into public.classes (owner_id, owner_email, name)
+select u.id, u.email, 'My Class'
+from auth.users u
+where u.email = 'kkeerthan@gmail.com'
+  and not exists (select 1 from public.classes c where c.owner_id = u.id);
+
+update public.students s
+set class_id = (
+  select c.id from public.classes c
+  where c.owner_email = 'kkeerthan@gmail.com'
+  order by c.created_at asc
+  limit 1
+)
+where s.class_id is null;
+
+-- ---------------------------------------------------------------------
+-- Policies (v2): owners see only their own classes/data; the admin
+-- (kkeerthan@gmail.com) sees everything. Anon gets nothing.
 -- (drop first so re-running this file in the SQL Editor does not error)
+-- ---------------------------------------------------------------------
+drop policy if exists "authenticated full access" on public.classes;
+drop policy if exists "owners and admin full access" on public.classes;
+create policy "owners and admin full access"
+  on public.classes
+  for all
+  to authenticated
+  using (owner_id = auth.uid() or (auth.jwt() ->> 'email') = 'kkeerthan@gmail.com')
+  with check (owner_id = auth.uid() or (auth.jwt() ->> 'email') = 'kkeerthan@gmail.com');
+
 drop policy if exists "authenticated full access" on public.students;
-create policy "authenticated full access"
+drop policy if exists "owners and admin full access" on public.students;
+create policy "owners and admin full access"
   on public.students
   for all
   to authenticated
-  using (true)
-  with check (true);
+  using (
+    (auth.jwt() ->> 'email') = 'kkeerthan@gmail.com'
+    or exists (
+      select 1 from public.classes c
+      where c.id = class_id and c.owner_id = auth.uid()
+    )
+  )
+  with check (
+    (auth.jwt() ->> 'email') = 'kkeerthan@gmail.com'
+    or exists (
+      select 1 from public.classes c
+      where c.id = class_id and c.owner_id = auth.uid()
+    )
+  );
 
 drop policy if exists "authenticated full access" on public.attendance;
-create policy "authenticated full access"
+drop policy if exists "owners and admin full access" on public.attendance;
+create policy "owners and admin full access"
   on public.attendance
   for all
   to authenticated
-  using (true)
-  with check (true);
+  using (
+    (auth.jwt() ->> 'email') = 'kkeerthan@gmail.com'
+    or exists (
+      select 1 from public.students s
+      join public.classes c on c.id = s.class_id
+      where s.id = student_id and c.owner_id = auth.uid()
+    )
+  )
+  with check (
+    (auth.jwt() ->> 'email') = 'kkeerthan@gmail.com'
+    or exists (
+      select 1 from public.students s
+      join public.classes c on c.id = s.class_id
+      where s.id = student_id and c.owner_id = auth.uid()
+    )
+  );
 
 drop policy if exists "authenticated full access" on public.payments;
-create policy "authenticated full access"
+drop policy if exists "owners and admin full access" on public.payments;
+create policy "owners and admin full access"
   on public.payments
   for all
   to authenticated
-  using (true)
-  with check (true);
+  using (
+    (auth.jwt() ->> 'email') = 'kkeerthan@gmail.com'
+    or exists (
+      select 1 from public.students s
+      join public.classes c on c.id = s.class_id
+      where s.id = student_id and c.owner_id = auth.uid()
+    )
+  )
+  with check (
+    (auth.jwt() ->> 'email') = 'kkeerthan@gmail.com'
+    or exists (
+      select 1 from public.students s
+      join public.classes c on c.id = s.class_id
+      where s.id = student_id and c.owner_id = auth.uid()
+    )
+  );
 
+-- Audit log: you can read your own actions, everything inside classes
+-- you own, and (admin) everything. You can only write rows as yourself.
 drop policy if exists "authenticated full access" on public.audit_log;
-create policy "authenticated full access"
+drop policy if exists "audit read own, class owners, admin" on public.audit_log;
+drop policy if exists "audit insert as self" on public.audit_log;
+create policy "audit read own, class owners, admin"
   on public.audit_log
-  for all
+  for select
   to authenticated
-  using (true)
-  with check (true);
+  using (
+    (auth.jwt() ->> 'email') = 'kkeerthan@gmail.com'
+    or actor_email = (auth.jwt() ->> 'email')
+    or exists (
+      select 1 from public.classes c
+      where c.id = class_id and c.owner_id = auth.uid()
+    )
+  );
+create policy "audit insert as self"
+  on public.audit_log
+  for insert
+  to authenticated
+  with check (actor_email = (auth.jwt() ->> 'email'));
 
 -- Done. Next steps are in SETUP.md:
 --  1. Authentication -> Users: create your own login user.

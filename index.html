@@ -193,7 +193,28 @@
 
   <!-- APP (hidden until signed in) -->
   <div id="appContent" class="hidden">
-  <div class="top-tabs" role="tablist">
+  <div id="classBar" class="card hidden" style="display:flex;gap:10px;align-items:center;justify-content:space-between;">
+    <div><strong id="classBarName">Class</strong> <span class="muted" id="classBarOwner"></span></div>
+    <button class="btn btn-small" type="button" id="switchClassBtn">⇄ Switch class</button>
+  </div>
+  <section id="screen-classes" class="screen">
+    <div class="card">
+      <h2 id="classesTitle">Your classes</h2>
+      <p class="muted">Pick a class to open its tracker — students, attendance, summary, payments and log all live inside the class. Or create a new one below.</p>
+      <div id="classList"></div>
+    </div>
+    <div class="card">
+      <h3>Create a new class</h3>
+      <form id="classForm">
+        <div class="form-grid">
+          <div><label for="className">Class name *</label><input id="className" required placeholder="e.g. Music, Art, Craft"></div>
+          <div><label for="classNote">Note (optional)</label><input id="classNote" placeholder="e.g. Saturday batch"></div>
+        </div>
+        <div style="margin-top:12px;"><button class="btn btn-primary" type="submit">Create class</button></div>
+      </form>
+    </div>
+  </section>
+  <div class="top-tabs" role="tablist" id="mainTabs">
     <button data-nav="students" class="active" type="button">Students</button>
     <button data-nav="attendance" type="button">Attendance</button>
     <button data-nav="summary" type="button">Summary</button>
@@ -352,7 +373,11 @@ const configMissing =
   typeof window.supabase === "undefined";
 
 let sb = null;        // Supabase client
-let session = null;   // current Auth session
+let session = null;
+let classes = [];
+let currentClass = null;
+const ADMIN_EMAIL = "kkeerthan@gmail.com";
+function isAdmin() { return !!session && !!session.user && session.user.email === ADMIN_EMAIL; }   // current Auth session
 
 /* In-memory copy of the database rows (refreshed after every change). */
 let students = [];    // {id,name,rate,phone,notes,joined_date,active,created_at}
@@ -409,9 +434,11 @@ function notifyEvent(type, payload) {
     if (!sb || !session || !session.access_token) return;
     /* Who made this change: the signed-in user's email from their
        Supabase Auth session, attached to every notification. */
-    const fullPayload = Object.assign({}, payload || {}, {
-      actor: (session.user && session.user.email) || ""
-    });
+    const fullPayload = Object.assign({}, {
+      actor: (session.user && session.user.email) || "",
+      class_id: currentClass ? currentClass.id : "",
+      class_name: currentClass ? currentClass.name : ""
+    }, payload || {});
     fetch(String(CFG.SUPABASE_URL).replace(/\/$/, "") + "/functions/v1/notify", {
       method: "POST",
       headers: {
@@ -433,30 +460,36 @@ function notifyEvent(type, payload) {
    Fire-and-forget like the emails: a failed audit write never blocks
    the action itself. Viewable on the Log screen, filterable by date
    and user. */
-async function auditLog(eventType, entity, summary, details) {
+async function auditLog(eventType, entity, summary, details, cls) {
   try {
     if (!sb || !session) return;
+    const c = cls || currentClass;
     await sb.from("audit_log").insert({
       actor_email: (session.user && session.user.email) || null,
       event_type: eventType,
       entity: entity || null,
       summary: summary || null,
-      details: details || null
+      details: details || null,
+      class_id: c ? c.id : null,
+      class_name: c ? c.name : null
     });
   } catch (e) { /* audit must never break the app */ }
 }
 
 /* ================= Data loading ================= */
 async function loadAll() {
-  const [sRes, aRes, pRes] = await Promise.all([
-    sb.from("students").select("*").order("created_at", { ascending: true }),
-    sb.from("attendance").select("*"),
-    sb.from("payments").select("*").order("payment_date", { ascending: false })
-  ]);
+  if (!currentClass) { students = []; attendanceRows = []; payments = []; return; }
+  const sRes = await sb.from("students").select("*").eq("class_id", currentClass.id).order("created_at", { ascending: true });
   if (sRes.error) throw sRes.error;
+  students = sRes.data || [];
+  const ids = students.map(s => s.id);
+  if (!ids.length) { attendanceRows = []; payments = []; return; }
+  const [aRes, pRes] = await Promise.all([
+    sb.from("attendance").select("*").in("student_id", ids),
+    sb.from("payments").select("*").in("student_id", ids).order("payment_date", { ascending: false })
+  ]);
   if (aRes.error) throw aRes.error;
   if (pRes.error) throw pRes.error;
-  students = sRes.data || [];
   attendanceRows = aRes.data || [];
   payments = pRes.data || [];
 }
@@ -500,14 +533,95 @@ $("loginForm").addEventListener("submit", async e => {
   }
   session = data.session;
   showGate("app");
-  await refreshAndRender("Signed in ✓");
   auditLog("user_signed_in", "session", "Signed in", {});
+  showClassPicker();
+  showStatus("Signed in ✓ Pick your class.");
 });
 $("signOutBtn").addEventListener("click", async () => {
   await auditLog("user_signed_out", "session", "Signed out", {});
   try { await sb.auth.signOut(); } catch (e) { /* still reset UI below */ }
   session = null; students = []; attendanceRows = []; payments = [];
+  currentClass = null; classes = [];
+  try { localStorage.removeItem("cat.currentClassId"); } catch (e) {}
   showGate("auth");
+});
+
+/* ================= Classes (v2: one tracker per class) =================
+   After sign-in the user lands on the class picker. Each user sees only
+   their own classes; the admin (ADMIN_EMAIL) sees everyone's — both are
+   enforced by Supabase RLS, the app simply lists what it is given.
+   Everything else in the app is scoped to `currentClass`. */
+function updateChrome() {
+  const inClass = !!currentClass;
+  $("mainTabs").style.display = inClass ? "" : "none";
+  $("classBar").classList.toggle("hidden", !inClass);
+  $("bottomNav").classList.toggle("hidden", !(session && inClass));
+  $("exportBtn").classList.toggle("hidden", !inClass);
+  if (inClass) {
+    $("classBarName").textContent = "📚 " + currentClass.name;
+    const own = session && session.user && currentClass.owner_email === session.user.email;
+    $("classBarOwner").textContent = own ? "· your class" : "· owner: " + (currentClass.owner_email || "");
+  }
+}
+async function loadClasses() {
+  const { data, error } = await sb.from("classes").select("*").order("created_at", { ascending: true });
+  if (error) throw error;
+  classes = data || [];
+  renderClassList();
+}
+function renderClassList() {
+  $("classesTitle").textContent = isAdmin() ? "All classes (admin view)" : "Your classes";
+  if (!classes.length) {
+    $("classList").innerHTML = '<div class="empty"><div class="big">📚</div><p><strong>No classes yet.</strong></p><p>Create your first class below — Music, Art, Craft, anything you teach.</p></div>';
+    return;
+  }
+  $("classList").innerHTML = classes.map(c => {
+    const own = session && session.user && c.owner_email === session.user.email;
+    return '<div class="student-item"><div><strong>' + esc(c.name) + '</strong> ' +
+      (own ? '<span class="badge">Yours</span>' : '<span class="badge rate">Owner: ' + esc(c.owner_email || "") + '</span>') +
+      (c.note ? '<div class="muted">' + esc(c.note) + '</div>' : '') +
+      '<div class="muted">Created ' + (c.created_at ? new Date(c.created_at).toLocaleDateString() : "") + '</div></div>' +
+      '<button class="btn btn-primary btn-small" data-open-class="' + c.id + '">Open →</button></div>';
+  }).join("");
+  $("classList").querySelectorAll("[data-open-class]").forEach(b => b.addEventListener("click", () => {
+    const c = classes.find(x => x.id === b.dataset.openClass);
+    if (c) enterClass(c);
+  }));
+}
+async function enterClass(c) {
+  currentClass = c;
+  try { localStorage.setItem("cat.currentClassId", c.id); } catch (e) {}
+  updateChrome();
+  showScreen("students");
+  await refreshAndRender("Opened class: " + c.name + " ✓");
+}
+function showClassPicker() {
+  currentClass = null;
+  students = []; attendanceRows = []; payments = [];
+  try { localStorage.removeItem("cat.currentClassId"); } catch (e) {}
+  updateChrome();
+  document.querySelectorAll(".screen").forEach(el => el.classList.remove("active"));
+  $("screen-classes").classList.add("active");
+  document.querySelectorAll("[data-nav]").forEach(b => b.classList.remove("active"));
+  loadClasses().catch(err => showError("Could not load classes", err));
+}
+$("switchClassBtn").addEventListener("click", showClassPicker);
+$("classForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  const name = $("className").value.trim();
+  if (!name) return;
+  const note = $("classNote").value.trim() || null;
+  try {
+    const { data: inserted, error } = await sb.from("classes")
+      .insert({ name: name, note: note, owner_id: session.user.id, owner_email: session.user.email })
+      .select().single();
+    if (error) throw error;
+    auditLog("class_created", "class", "Created class " + inserted.name, { class_id: inserted.id, name: inserted.name, note: inserted.note }, inserted);
+    notifyEvent("class_created", { class_id: inserted.id, class_name: inserted.name, name: inserted.name, note: inserted.note || "" });
+    $("className").value = ""; $("classNote").value = "";
+    classes.push(inserted);
+    enterClass(inserted);
+  } catch (err) { showError("Could not create class", err); }
 });
 
 /* ================= Students ================= */
@@ -526,7 +640,8 @@ $("studentForm").addEventListener("submit", async e => {
     name: name, rate: rate,
     phone: $("studentPhone").value.trim() || null,
     notes: $("studentNotes").value.trim() || null,
-    joined_date: $("studentJoined").value || null
+    joined_date: $("studentJoined").value || null,
+    class_id: currentClass ? currentClass.id : null
   };
   const id = $("studentId").value;
   $("studentSubmitBtn").disabled = true;
@@ -840,6 +955,7 @@ async function loadLog() {
   }
   const userVal = $("logUser").value;
   if (userVal) q = q.eq("actor_email", userVal);
+  if (currentClass) q = q.eq("class_id", currentClass.id);
   const { data, error } = await q;
   if (error) {
     listEl.innerHTML = '<div class="error">Could not load the audit log. If the audit table is new, run the updated supabase.sql once in Supabase (SQL Editor → Run) to create it, then refresh. (' + esc(error.message) + ')</div>';
@@ -882,7 +998,8 @@ $("logClearFilters").addEventListener("click", () => { $("logDate").value = ""; 
 $("exportBtn").addEventListener("click", () => {
   auditLog("backup_exported", "backup", "Exported a JSON backup", {});
   const backup = {
-    version: 2, exported_at: new Date().toISOString(),
+    version: 3, exported_at: new Date().toISOString(),
+    class: currentClass ? { id: currentClass.id, name: currentClass.name, owner_email: currentClass.owner_email } : null,
     students: students, attendance: attendanceRows, payments: payments
   };
   const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
@@ -906,7 +1023,11 @@ if (configMissing) {
     if (data && data.session) {
       session = data.session;
       showGate("app");
-      await refreshAndRender();
+      await loadClasses();
+      let savedId = null;
+      try { savedId = localStorage.getItem("cat.currentClassId"); } catch (e) {}
+      const saved = savedId ? classes.find(c => c.id === savedId) : null;
+      if (saved) { enterClass(saved); } else { showClassPicker(); }
     }
   }).catch(err => console.error("Session check failed", err));
   sb.auth.onAuthStateChange((_event, newSession) => { session = newSession; });
