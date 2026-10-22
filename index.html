@@ -584,13 +584,14 @@ function renderClassList() {
       (c.note ? '<div class="muted">' + esc(c.note) + '</div>' : '') +
       '<div class="muted">Created ' + (c.created_at ? new Date(c.created_at).toLocaleDateString() : "") + '</div></div>' +
       '<div class="row"><button class="btn btn-primary btn-small" data-open-class="' + c.id + '">Open →</button>' +
-      '<button class="btn btn-danger btn-small" data-delete-class="' + c.id + '">Delete</button></div></div>';
+      (isAdmin() ? '<button class="btn btn-danger btn-small" data-delete-class="' + c.id + '">Delete</button>' : '') + '</div></div>';
   }).join("");
   $("classList").querySelectorAll("[data-open-class]").forEach(b => b.addEventListener("click", () => {
     const c = classes.find(x => x.id === b.dataset.openClass);
     if (c) enterClass(c);
   }));
   $("classList").querySelectorAll("[data-delete-class]").forEach(b => b.addEventListener("click", async () => {
+    if (!isAdmin()) { alert("Only the admin can delete a class."); return; }
     const c = classes.find(x => x.id === b.dataset.deleteClass);
     if (!c) return;
     /* Deleting a class deletes everything inside it, so this asks for

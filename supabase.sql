@@ -156,12 +156,34 @@ where s.class_id is null;
 -- ---------------------------------------------------------------------
 drop policy if exists "authenticated full access" on public.classes;
 drop policy if exists "owners and admin full access" on public.classes;
-create policy "owners and admin full access"
+drop policy if exists "owners and admin read" on public.classes;
+drop policy if exists "owners and admin create" on public.classes;
+drop policy if exists "owners and admin update" on public.classes;
+drop policy if exists "admin only delete" on public.classes;
+create policy "owners and admin read"
   on public.classes
-  for all
+  for select
+  to authenticated
+  using (owner_id = auth.uid() or (auth.jwt() ->> 'email') = 'kkeerthan@gmail.com');
+create policy "owners and admin create"
+  on public.classes
+  for insert
+  to authenticated
+  with check (owner_id = auth.uid() or (auth.jwt() ->> 'email') = 'kkeerthan@gmail.com');
+create policy "owners and admin update"
+  on public.classes
+  for update
   to authenticated
   using (owner_id = auth.uid() or (auth.jwt() ->> 'email') = 'kkeerthan@gmail.com')
   with check (owner_id = auth.uid() or (auth.jwt() ->> 'email') = 'kkeerthan@gmail.com');
+-- Deleting a class is ADMIN ONLY (per the owner, 2026-10-22) — regular
+-- users cannot delete even their own classes, enforced here in the DB,
+-- not just by hiding the button in the app.
+create policy "admin only delete"
+  on public.classes
+  for delete
+  to authenticated
+  using ((auth.jwt() ->> 'email') = 'kkeerthan@gmail.com');
 
 drop policy if exists "authenticated full access" on public.students;
 drop policy if exists "owners and admin full access" on public.students;
