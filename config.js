@@ -11,7 +11,7 @@ window.APP_CONFIG = {
   // Leave NOTIFY_ENABLED as false until the `notify` Edge Function exists.
   // NOTIFY_EMAILS is documentation for you only; the Edge Function reads
   // the real recipient list from its own NOTIFY_EMAILS secret, not from here.
-  NOTIFY_ENABLED: false,
+  NOTIFY_ENABLED: true,
   // Recipient addresses are intentionally NOT stored in this repo file.
   // They live only in the notify Edge Function's NOTIFY_EMAILS secret.
   NOTIFY_EMAILS: []

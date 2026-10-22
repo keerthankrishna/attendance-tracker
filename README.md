@@ -13,6 +13,26 @@ tested as a private in-chat app, then rebuilt as this portable version.
 **New here? Start with [SETUP.md](SETUP.md)** — it has the ordered,
 click-by-click setup for Supabase, email notifications, and GitHub Pages.
 
+> ## 🚀 Live status (as of October 21, 2026)
+>
+> - **Live site:** https://keerthankrishna.github.io/attendance-tracker/
+>   — GitHub Pages is **enabled and serving** (this repo is public;
+>   verified HTTP 200 with the full app and the live config).
+> - **Database:** the schema in `supabase.sql` has been **run** in the
+>   owner's Supabase project — all three tables (`students`,
+>   `attendance`, `payments`) verified live and starting empty.
+> - **Config:** `config.js` is **wired with the real Supabase Project
+>   URL and anon key** (no longer placeholders) and
+>   `NOTIFY_ENABLED` is **true**.
+> - **Email notifications:** the `notify` Edge Function is **deployed**
+>   in Supabase with its secrets set (`RESEND_API_KEY`,
+>   `NOTIFY_EMAILS`), and was verified live with a probe request.
+>   It currently runs in **Resend test mode** — see
+>   [Email notifications](#email-notifications) for the one
+>   limitation that still applies.
+> - **Remaining:** the owner's first sign-in test on the live site,
+>   and lifting the Resend test-mode limitation (below).
+
 ---
 
 ## Table of contents
@@ -31,6 +51,7 @@ click-by-click setup for Supabase, email notifications, and GitHub Pages.
 - [Repository layout](#repository-layout)
 - [Local development and testing](#local-development-and-testing)
 - [Known limits and trade-offs](#known-limits-and-trade-offs)
+- [Change log](#change-log)
 - [Possible future improvements](#possible-future-improvements)
 
 ---
@@ -60,7 +81,7 @@ flowchart LR
     U -->|"supabase-js v2 (CDN)<br/>REST + Auth, anon key + user JWT"| S["Supabase project"]
     S --> DB[("Postgres database<br/>students / attendance / payments<br/>Row Level Security ON")]
     S --> A["Supabase Auth<br/>email + password<br/>(sign-ups disabled)"]
-    U -.->|"after a save, fire-and-forget<br/>POST with session token"| F["Supabase Edge Function<br/>notify (optional)"]
+    U -.->|"after a save, fire-and-forget<br/>POST with session token"| F["Supabase Edge Function<br/>notify (deployed)"]
     F -->|"Resend API<br/>(key stored as a function secret)"| R["Resend"]
     R -->|"email"| I["Owner + co-handler inboxes"]
 ```
@@ -245,7 +266,31 @@ Flow:
 Recipient addresses are deliberately **not** stored in this repo
 (see [Configuration and secrets](#configuration-and-secrets)).
 
-Setup is optional and comes last: SETUP.md, section B.
+**Status: deployed and switched on.** The function was deployed to
+Supabase on Oct 21, 2026, its secrets were set, the endpoint was
+verified live (a probe request returned the function's expected
+`400 unknown event type` response, which only happens *after* its
+secret checks pass), and `NOTIFY_ENABLED: true` was set in
+`config.js`.
+
+**Current limitation — Resend test mode:** the sender is Resend's
+test address (`onboarding@resend.dev`) and no custom domain has been
+verified in Resend yet. In this mode Resend only delivers to the
+**email address of the Resend account owner**, so for now:
+
+- `NOTIFY_EMAILS` contains **only the owner's address**, and
+- notification emails go to the owner alone.
+
+To send to **both** handlers, one of these must happen (SETUP.md,
+section B, still applies as the general guide):
+
+1. **Verify a domain the owner controls in Resend** (Domains → Add
+   Domain → add the DNS records Resend shows → Verify), set the
+   `MAIL_FROM` secret to an address on that domain, and add the
+   second address back into `NOTIFY_EMAILS`; or
+2. Switch the sending provider to a Gmail-based service such as
+   EmailJS, which can mail arbitrary Gmail addresses without a
+   custom domain.
 
 ---
 
@@ -263,7 +308,9 @@ Setup is optional and comes last: SETUP.md, section B.
 
 `config.example.js` is the same file with placeholder values, kept as
 a template/documentation. If `config.js` still has the placeholders,
-the app detects it and shows the "Setup needed" screen.
+the app detects it and shows the "Setup needed" screen. *(The live
+`config.js` in this repo no longer has placeholders — it carries the
+real Project URL, the anon key, and `NOTIFY_ENABLED: true`.)*
 
 ---
 
@@ -276,10 +323,14 @@ the app detects it and shows the "Setup needed" screen.
 - **Backend:** the Supabase project is created and configured once,
   manually, in the Supabase dashboard: run `supabase.sql`, create
   the owner user in Auth, disable sign-ups, copy the Project URL and
-  anon key into `config.js`, and (optionally) deploy the `notify`
-  Edge Function with its secrets.
+  anon key into `config.js`, and deploy the `notify` Edge Function
+  with its secrets. **All of these steps are done** (Oct 21, 2026),
+  except the owner's first live sign-in test.
+- **Live URL:** https://keerthankrishna.github.io/attendance-tracker/
+  (this repo was made public, which free GitHub Pages requires).
 - **Cost:** $0 on the free tiers used here — GitHub Pages, Supabase
-  free project, and Resend's free sending tier.
+  free project, and Resend's free sending tier (3,000 emails/month,
+  100/day).
 - **Exact clicks:** SETUP.md, sections A (Supabase), B (email),
   C (GitHub Pages + a live end-to-end test: sign in, add a student
   on a *past* date, record a payment, check the Summary).
@@ -312,7 +363,7 @@ Deliberate choices, per the owner's feedback during testing:
 | File | Purpose |
 |---|---|
 | `index.html` | The entire app — markup, CSS, and JavaScript in one file. Loads supabase-js v2 from CDN and `config.js` |
-| `config.js` | Live site configuration: Supabase Project URL, anon key, notify flag (placeholders until setup) |
+| `config.js` | Live site configuration: Supabase Project URL, anon key, and the notify flag — wired and live (`NOTIFY_ENABLED: true`) |
 | `config.example.js` | The config template with placeholder values |
 | `supabase.sql` | Database schema + Row Level Security policies — paste into the Supabase SQL Editor and Run |
 | `notify-function.ts` | Source of the `notify` Supabase Edge Function (Resend email notifications) — deployed to Supabase, not served by Pages |
@@ -368,9 +419,37 @@ python3 -m http.server 8000
   also means a failed email is only surfaced as a small note in the
   confirmation toast — check the Edge Function logs in Supabase if
   notifications seem missing.
+- **Email is currently owner-only (Resend test mode).** Until a
+  custom domain is verified in Resend (or the sender is switched to
+  a Gmail-based provider), notifications deliver only to the Resend
+  account owner's address — see
+  [Email notifications](#email-notifications).
 - **Deleting a student is permanent** and cascades to their
   attendance and payments (pause a student instead if you may need
   their history).
+
+---
+
+## Change log
+
+- **Oct 20, 2026** — Tracker first built and tested as a private
+  in-chat app (Students / Attendance / Summary / Payments), including
+  the design passes: brighter vibrant colors, all-black text for
+  readability, and the Payments form overflow fix.
+- **Oct 21, 2026** — Rebuilt as this portable version (static site +
+  Supabase) and pushed to GitHub. Repository made public and GitHub
+  Pages enabled — site live at
+  https://keerthankrishna.github.io/attendance-tracker/ .
+- **Oct 21, 2026** — `config.js` wired with the live Supabase Project
+  URL and anon key. Database schema run in Supabase; all three tables
+  verified live. README expanded into the full architecture document.
+- **Oct 21, 2026** — Email notifications completed: Resend account
+  and API key created (key stored only as a Supabase secret), the
+  `notify` Edge Function deployed with `RESEND_API_KEY` +
+  `NOTIFY_EMAILS` secrets and verified live by probe request, and
+  `NOTIFY_ENABLED` set to `true` in `config.js`. Notifications are
+  in Resend test mode (owner-only delivery) until a custom domain
+  is verified or the sender provider is changed.
 
 ---
 
